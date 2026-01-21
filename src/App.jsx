@@ -45,7 +45,7 @@ import {
 // --- 翻译字典 ---
 const TRANSLATIONS = {
   zh: {
-    appTitle: "标识标注器", // Updated
+    appTitle: "标识标注器",
     appSubtitle: "Signage Analytics",
     navMap: "平面图",
     navEditor: "标注详情",
@@ -137,7 +137,7 @@ const TRANSLATIONS = {
     mergeWithPrev: "与上一张合并"
   },
   en: {
-    appTitle: "Signage Annotator", // Updated
+    appTitle: "Signage Annotator",
     appSubtitle: "Professional Tool",
     navMap: "Map View",
     navEditor: "Editor",
@@ -335,7 +335,7 @@ const StackedBarChart = ({ zones, data }) => {
                 const pctA = total ? (d.Atmosphere / total) * 100 : 0;
                 const pctR = total ? (d.Relevance / total) * 100 : 0;
                 const pctS = total ? (d.Clarity / total) * 100 : 0;
-                const barWidth = (total / maxTotal) * 100;
+                const barWidth = maxTotal ? (total / maxTotal) * 100 : 0;
 
                 return (
                     <div key={z.id} className="flex items-center gap-3">
@@ -486,6 +486,12 @@ const MapView = ({
     };
 
     const handleListDragStart = (e, index) => { setDraggedListItemIndex(index); e.dataTransfer.effectAllowed = "move"; };
+    
+    // 修复：添加 handleListDragOver 函数
+    const handleListDragOver = (e) => {
+        e.preventDefault();
+    };
+
     const handleListDrop = (e, targetIndex) => {
         e.preventDefault();
         if (draggedListItemIndex === null || draggedListItemIndex === targetIndex) return;
