@@ -39,7 +39,9 @@ import {
   PieChart,
   Activity,
   Globe,
-  Leaf
+  Leaf,
+  Cloud,
+  Check
 } from 'lucide-react';
 
 // --- 翻译字典 ---
@@ -95,8 +97,10 @@ const TRANSLATIONS = {
     notesTitle: "图片备注",
     notesPlaceholder: "在此输入文字备注...",
     saveChanges: "保存所有更改",
+    statusSaving: "自动保存中...",
+    statusSaved: "已同步",
     deletePin: "删除此点位",
-    confirmDeletePin: "确定删除此标识点吗？",
+    confirmDeletePin: "确定删除此标识点吗？此操作不可恢复。",
     currentModeHighlight: "突出选区模式",
     currentModeDraw: "标注分析模式",
     statsTitle: "标识系统数据看板",
@@ -187,8 +191,10 @@ const TRANSLATIONS = {
     notesTitle: "Notes",
     notesPlaceholder: "Enter observations here...",
     saveChanges: "Save Changes",
+    statusSaving: "Saving...",
+    statusSaved: "Synced",
     deletePin: "Delete Pin",
-    confirmDeletePin: "Are you sure you want to delete this pin?",
+    confirmDeletePin: "Are you sure you want to delete this pin? This cannot be undone.",
     currentModeHighlight: "Highlight Mode",
     currentModeDraw: "Annotation Mode",
     statsTitle: "Analytics Dashboard",
@@ -424,6 +430,7 @@ const MapView = ({
     const [editingZone, setEditingZone] = useState(null); 
     const [draggedListItemIndex, setDraggedListItemIndex] = useState(null);
     const [placingPinId, setPlacingPinId] = useState(null);
+    const [mapZoom, setMapZoom] = useState(1); 
 
     const contentRef = useRef(null);
     const fileInputRef = useRef(null);
@@ -486,12 +493,7 @@ const MapView = ({
     };
 
     const handleListDragStart = (e, index) => { setDraggedListItemIndex(index); e.dataTransfer.effectAllowed = "move"; };
-    
-    // 修复：添加 handleListDragOver 函数
-    const handleListDragOver = (e) => {
-        e.preventDefault();
-    };
-
+    const handleListDragOver = (e) => { e.preventDefault(); };
     const handleListDrop = (e, targetIndex) => {
         e.preventDefault();
         if (draggedListItemIndex === null || draggedListItemIndex === targetIndex) return;
@@ -566,6 +568,19 @@ const MapView = ({
             setMapMode('view');
         }
     };
+    
+    // 修复：独立的删除处理函数
+    const handleDeletePin = (e, id) => {
+        e.stopPropagation(); // 阻止事件冒泡
+        if (window.confirm(t('confirmDeletePin'))) {
+            setPins(prev => prev.filter(p => p.id !== id));
+            // 如果删除了当前正在编辑的 Pin，清理编辑状态
+            if (editingPinId === id) {
+                setEditingPinId(null);
+            }
+        }
+    };
+
     const finishZone = () => {
         if (currentZonePoints.length < 3) return alert(t('alertZone3Points'));
         let nextLetter = 'A';
@@ -610,8 +625,16 @@ const MapView = ({
                         </div>
                     ) : (
                         <div className="w-full h-full overflow-auto bg-slate-100 relative custom-scrollbar">
-                            <div ref={contentRef} className="relative inline-block min-w-full min-h-full" style={{ cursor: mapMode === 'add_pin' ? 'crosshair' : mapMode === 'draw_zone' ? 'crosshair' : mapMode === 'place_pending' ? 'cell' : 'default' }}>
-                                <img src={mapImage} alt="Map" className="block max-w-none pointer-events-auto" onMouseDown={handleMouseDown} onClick={handleMapClick} draggable={false} />
+                            <div 
+                                ref={contentRef} 
+                                className="relative inline-block" 
+                                style={{ 
+                                    cursor: mapMode === 'add_pin' ? 'crosshair' : mapMode === 'draw_zone' ? 'crosshair' : mapMode === 'place_pending' ? 'cell' : 'default',
+                                    width: `${mapZoom * 100}%`,
+                                    height: 'auto'
+                                }}
+                            >
+                                <img src={mapImage} alt="Map" className="block w-full h-auto pointer-events-auto" onMouseDown={handleMouseDown} onClick={handleMapClick} draggable={false} />
                                 <svg className="absolute top-0 left-0 w-full h-full pointer-events-none" style={{ zIndex: 10 }} viewBox="0 0 100 100" preserveAspectRatio="none">
                                     {zones.map((zone) => {
                                         const style = ZONE_PALETTE[zone.colorIndex || 0];
@@ -649,6 +672,15 @@ const MapView = ({
                         </div>
                     )}
                     <input type="file" ref={pinInputRef} className="hidden" accept="image/*" onChange={(e) => { const file = e.target.files[0]; if (file) { const reader = new FileReader(); reader.onload = (event) => { const newPin = { id: Date.now(), x: tempClickPos.x, y: tempClickPos.y, imageSrc: event.target.result, originalImageSrc: event.target.result, filters: { brightness: 100, contrast: 100 }, annotations: [], highlightPoly: [], notes: '', groupId: null }; setPins([...pins, newPin]); setMapMode('view'); }; reader.readAsDataURL(file); } }} />
+                    
+                    {mapImage && (
+                        <div className="absolute bottom-6 right-6 flex items-center gap-2 bg-white/90 backdrop-blur shadow-lg px-4 py-2 rounded-full border border-slate-200 z-50">
+                            <button onClick={() => setMapZoom(z => Math.max(0.25, z - 0.25))} className="p-1.5 hover:bg-slate-100 rounded text-slate-600"><ZoomOut size={16}/></button>
+                            <span className="text-xs font-mono text-slate-600 w-12 text-center">{(mapZoom * 100).toFixed(0)}%</span>
+                            <button onClick={() => setMapZoom(z => Math.min(4, z + 0.25))} className="p-1.5 hover:bg-slate-100 rounded text-slate-600"><ZoomIn size={16}/></button>
+                            <button onClick={() => setMapZoom(1)} className="text-xs text-slate-400 hover:text-slate-600 ml-1"><Maximize size={14}/></button>
+                        </div>
+                    )}
                 </div>
             </div>
             <div className="w-64 bg-white border-l shadow-2xl z-30 flex flex-col h-full">
@@ -685,20 +717,41 @@ const MapView = ({
                                             const canGroupWithPrev = idx > 0 && !isUnlocated;
                                             const isGrouped = !!pin.groupId;
                                             return (
-                                                <div key={pin.id} id={`pin-item-${pin.id}`} draggable onDragStart={(e) => handleListDragStart(e, pin.originalIndex)} onDragOver={handleListDragOver} onDrop={(e) => handleListDrop(e, pin.originalIndex)} onClick={() => { if (isUnlocated) { startPlacingPin(pin.id); } else { setEditingPinId(pin.id); onEditImage(pin); } }} className={`flex gap-2 p-2 hover:bg-slate-50 transition-colors cursor-pointer group relative ${editingPinId === pin.id ? 'bg-emerald-50/50' : ''} ${isGrouped ? 'pl-6' : ''} ${isUnlocated && placingPinId === pin.id ? 'ring-2 ring-emerald-500 bg-emerald-50' : ''}`}>
+                                                <div 
+                                                    key={pin.id} 
+                                                    id={`pin-item-${pin.id}`} 
+                                                    draggable 
+                                                    onDragStart={(e) => handleListDragStart(e, pin.originalIndex)} 
+                                                    onDragOver={handleListDragOver} 
+                                                    onDrop={(e) => handleListDrop(e, pin.originalIndex)} 
+                                                    onClick={() => { 
+                                                        if (isUnlocated) { 
+                                                            startPlacingPin(pin.id); 
+                                                        } else { 
+                                                            setEditingPinId(pin.id); 
+                                                            onEditImage(pin); 
+                                                        } 
+                                                    }} 
+                                                    className={`flex justify-between items-center gap-2 p-2 hover:bg-slate-50 transition-colors cursor-pointer group relative ${editingPinId === pin.id ? 'bg-emerald-50/50' : ''} ${isGrouped ? 'pl-6' : ''} ${isUnlocated && placingPinId === pin.id ? 'ring-2 ring-emerald-500 bg-emerald-50' : ''}`}
+                                                >
                                                     {isGrouped && <div className="absolute left-3 top-[-10px] bottom-1/2 border-l-2 border-b-2 border-slate-200 w-3 rounded-bl-lg"></div>}
-                                                    <div className="flex flex-col items-center justify-center text-slate-300 cursor-move hover:text-slate-500"><GripVertical size={14} /></div>
-                                                    {!isUnlocated && <div className="flex flex-col justify-center">{isGrouped ? <button onClick={(e) => { e.stopPropagation(); toggleGroup(pin.originalIndex, -1); }} className="p-1 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded" title={t('removeFromGroup')}><Unlink size={14} /></button> : <button onClick={(e) => { e.stopPropagation(); if(canGroupWithPrev) toggleGroup(pin.originalIndex, items[idx-1].originalIndex); }} className={`p-1 rounded ${canGroupWithPrev ? 'text-slate-200 hover:text-blue-500 hover:bg-blue-50' : 'text-transparent pointer-events-none'}`} title={t('mergeWithPrev')}><LinkIcon size={14} /></button>}</div>}
-                                                    <div className="w-10 h-10 bg-slate-200 rounded overflow-hidden shrink-0 border border-slate-200 relative">
-                                                        <img src={pin.imageSrc} className="w-full h-full object-cover" alt="" />
-                                                        {pin.annotations.length > 0 && <div className="absolute bottom-0 right-0 w-3 h-3 bg-emerald-500 rounded-tl shadow-sm"></div>}
-                                                    </div>
-                                                    <div className="flex-1 min-w-0 flex flex-col justify-center">
-                                                        <div className="flex justify-between items-center">
-                                                            <span className={`text-xs font-bold ${editingPinId === pin.id ? 'text-emerald-700' : 'text-slate-700'}`}>{isUnlocated ? t('unlocatedLabel') : pin.displayName}</span>
-                                                            {!isUnlocated && <button onClick={(e) => { e.stopPropagation(); onEditImage(pin); }} className="opacity-0 group-hover:opacity-100 p-1 hover:bg-slate-200 rounded text-slate-500" title="Edit"><Edit3 size={12} /></button>}
+                                                    <div className="flex gap-2 items-center flex-1 min-w-0">
+                                                        <div className="flex flex-col items-center justify-center text-slate-300 cursor-move hover:text-slate-500"><GripVertical size={14} /></div>
+                                                        {!isUnlocated && <div className="flex flex-col justify-center">{isGrouped ? <button onClick={(e) => { e.stopPropagation(); toggleGroup(pin.originalIndex, -1); }} className="p-1 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded" title={t('removeFromGroup')}><Unlink size={14} /></button> : <button onClick={(e) => { e.stopPropagation(); if(canGroupWithPrev) toggleGroup(pin.originalIndex, items[idx-1].originalIndex); }} className={`p-1 rounded ${canGroupWithPrev ? 'text-slate-200 hover:text-blue-500 hover:bg-blue-50' : 'text-transparent pointer-events-none'}`} title={t('mergeWithPrev')}><LinkIcon size={14} /></button>}</div>}
+                                                        <div className="w-10 h-10 bg-slate-200 rounded overflow-hidden shrink-0 border border-slate-200 relative">
+                                                            <img src={pin.imageSrc} className="w-full h-full object-cover" alt="" />
+                                                            {pin.annotations.length > 0 && <div className="absolute bottom-0 right-0 w-3 h-3 bg-emerald-500 rounded-tl shadow-sm"></div>}
                                                         </div>
-                                                        <div className="text-[10px] text-slate-400 truncate">{pin.notes || (pin.annotations.length > 0 ? `${pin.annotations.length} marks` : "No notes")}</div>
+                                                        <div className="flex-1 min-w-0 flex flex-col justify-center">
+                                                            <div className="flex justify-between items-center">
+                                                                <span className={`text-xs font-bold ${editingPinId === pin.id ? 'text-emerald-700' : 'text-slate-700'}`}>{isUnlocated ? t('unlocatedLabel') : pin.displayName}</span>
+                                                            </div>
+                                                            <div className="text-[10px] text-slate-400 truncate">{pin.notes || (pin.annotations.length > 0 ? `${pin.annotations.length} marks` : "No notes")}</div>
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                                                        {!isUnlocated && <button onClick={(e) => { e.stopPropagation(); onEditImage(pin); }} className="p-1 hover:bg-slate-200 rounded text-slate-500" title="Edit"><Edit3 size={12} /></button>}
+                                                        <button onClick={(e) => handleDeletePin(e, pin.id)} className="p-1 hover:bg-red-100 rounded text-slate-400 hover:text-red-500" title={t('deletePin')}><Trash2 size={12} /></button>
                                                     </div>
                                                 </div>
                                             );
@@ -714,64 +767,116 @@ const MapView = ({
     );
 };
 
-// --- 组件：图片编辑器 ---
+// --- 组件：图片编辑器 (重构版：自动保存 & 状态分离) ---
 const ImageEditor = ({ pin, setPins, setActiveTab, t }) => {
-    const [state, setState] = useState({
-        brightness: pin.filters.brightness,
-        contrast: pin.filters.contrast,
-        brushColor: ANALYSIS_CATEGORIES[0],
-        brushSize: 6, mode: 'draw', isDrawing: false, zoom: 1, isImageLoaded: false
-    });
-    
+    // 1. Data State (需要持久化的数据)
+    const [filters, setFilters] = useState(pin.filters);
     const [highlightPoly, setHighlightPoly] = useState(pin.highlightPoly || []);
     const [paths, setPaths] = useState(pin.annotations);
+    const [notes, setNotes] = useState(pin.notes || '');
+
+    // 2. View State (仅 UI 交互，无需保存)
+    const [viewState, setViewState] = useState({
+        mode: 'draw', 
+        isDrawing: false,
+        zoom: 1,
+        isImageLoaded: false,
+        brushColor: ANALYSIS_CATEGORIES[0],
+        brushSize: 6,
+        isSaving: false // 保存状态指示
+    });
+
     const canvasRef = useRef(null);
-    const notesRef = useRef(null);
     const containerRef = useRef(null);
 
+    // 重置状态当 Pin ID 改变 (切换图片)
+    useEffect(() => {
+        setFilters(pin.filters);
+        setHighlightPoly(pin.highlightPoly || []);
+        setPaths(pin.annotations);
+        setNotes(pin.notes || '');
+        setViewState(prev => ({ ...prev, isImageLoaded: false }));
+    }, [pin.id]);
+
+    // 自动保存逻辑 (Debounced)
+    useEffect(() => {
+        setViewState(prev => ({ ...prev, isSaving: true }));
+        const handler = setTimeout(() => {
+            setPins(prev => prev.map(p => p.id === pin.id ? {
+                ...p,
+                annotations: paths,
+                highlightPoly,
+                filters,
+                notes
+            } : p));
+            setViewState(prev => ({ ...prev, isSaving: false }));
+        }, 800); // 800ms 延迟保存
+
+        return () => clearTimeout(handler);
+    }, [paths, highlightPoly, filters, notes]);
+
+    // Canvas 渲染
     useEffect(() => {
         if (!canvasRef.current) return;
         const canvas = canvasRef.current;
         const ctx = canvas.getContext('2d');
         const img = new Image();
         img.src = pin.imageSrc;
-        setState(p => ({ ...p, isImageLoaded: false }));
+
         img.onload = () => {
-            canvas.width = img.naturalWidth; canvas.height = img.naturalHeight;
-            setState(p => ({ ...p, isImageLoaded: true }));
+            canvas.width = img.naturalWidth;
+            canvas.height = img.naturalHeight;
+            setViewState(prev => ({ ...prev, isImageLoaded: true }));
+            
             ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // 绘制背景 (黑白或彩色)
             const hasHighlight = highlightPoly.length > 0;
             if (hasHighlight) {
-                ctx.filter = `grayscale(100%) brightness(${state.brightness}%) contrast(${state.contrast}%)`;
+                // 黑白底图
+                ctx.filter = `grayscale(100%) brightness(${filters.brightness}%) contrast(${filters.contrast}%)`;
                 ctx.drawImage(img, 0, 0);
+                
+                // 彩色选区
                 if (highlightPoly.length > 2) {
-                    ctx.save(); ctx.beginPath();
+                    ctx.save();
+                    ctx.beginPath();
                     ctx.moveTo(highlightPoly[0].x, highlightPoly[0].y);
                     for(let i=1; i<highlightPoly.length; i++) ctx.lineTo(highlightPoly[i].x, highlightPoly[i].y);
-                    ctx.closePath(); ctx.clip();
-                    ctx.filter = `brightness(${state.brightness}%) contrast(${state.contrast}%)`;
-                    ctx.drawImage(img, 0, 0); ctx.restore();
-                    ctx.beginPath(); ctx.moveTo(highlightPoly[0].x, highlightPoly[0].y);
+                    ctx.closePath();
+                    ctx.clip();
+                    ctx.filter = `brightness(${filters.brightness}%) contrast(${filters.contrast}%)`;
+                    ctx.drawImage(img, 0, 0);
+                    ctx.restore();
+                    // 边框
+                    ctx.beginPath();
+                    ctx.moveTo(highlightPoly[0].x, highlightPoly[0].y);
                     for(let i=1; i<highlightPoly.length; i++) ctx.lineTo(highlightPoly[i].x, highlightPoly[i].y);
-                    ctx.closePath(); ctx.lineWidth = 2; ctx.strokeStyle = '#fff'; ctx.stroke(); ctx.lineWidth = 1; ctx.strokeStyle = '#333'; ctx.stroke();
+                    ctx.closePath();
+                    ctx.lineWidth = 2; ctx.strokeStyle = '#fff'; ctx.stroke();
+                    ctx.lineWidth = 1; ctx.strokeStyle = '#333'; ctx.stroke();
                 }
             } else {
-                ctx.filter = `brightness(${state.brightness}%) contrast(${state.contrast}%)`;
+                ctx.filter = `brightness(${filters.brightness}%) contrast(${filters.contrast}%)`;
                 ctx.drawImage(img, 0, 0);
             }
             ctx.filter = 'none';
-            if (state.mode === 'highlight' && highlightPoly.length > 0) {
+
+            // 绘制编辑中的选区点线
+            if (viewState.mode === 'highlight' && highlightPoly.length > 0) {
                  ctx.fillStyle = '#fff'; ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
                  highlightPoly.forEach(p => { ctx.beginPath(); ctx.arc(p.x, p.y, 4, 0, Math.PI * 2); ctx.fill(); ctx.stroke(); });
                  if (highlightPoly.length > 1) { ctx.beginPath(); ctx.moveTo(highlightPoly[0].x, highlightPoly[0].y); for(let i=1; i<highlightPoly.length; i++) ctx.lineTo(highlightPoly[i].x, highlightPoly[i].y); ctx.stroke(); }
             }
+
+            // 绘制标注路径
             paths.forEach(path => {
                 ctx.beginPath(); ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.lineWidth = path.width; ctx.strokeStyle = path.color;
                 if (path.points.length > 0) { ctx.moveTo(path.points[0].x, path.points[0].y); path.points.forEach(p => ctx.lineTo(p.x, p.y)); }
                 ctx.stroke();
             });
         };
-    }, [pin.imageSrc, state.brightness, state.contrast, paths, state.mode, highlightPoly]);
+    }, [pin.imageSrc, filters, paths, viewState.mode, highlightPoly]);
 
     const getCoords = (e) => {
         const rect = canvasRef.current.getBoundingClientRect();
@@ -781,14 +886,25 @@ const ImageEditor = ({ pin, setPins, setActiveTab, t }) => {
         let clientY = e.clientY || (e.touches ? e.touches[0].clientY : 0);
         return { x: (clientX - rect.left) * scaleX, y: (clientY - rect.top) * scaleY };
     };
-    const handleCanvasClick = (e) => { if (state.mode === 'highlight') { const coords = getCoords(e); setHighlightPoly(prev => [...prev, coords]); } };
-    const handleStart = (e) => { if (state.mode !== 'draw') return; const { x, y } = getCoords(e); setState(p => ({ ...p, isDrawing: true })); setPaths([...paths, { color: state.brushColor.color, category: state.brushColor.id, width: state.brushSize, points: [{ x, y }] }]); };
-    const handleMove = (e) => { if (state.mode !== 'draw' || !state.isDrawing) return; const { x, y } = getCoords(e); const newPaths = [...paths]; newPaths[newPaths.length - 1].points.push({ x, y }); setPaths(newPaths); };
-    const handleEnd = () => setState(p => ({ ...p, isDrawing: false }));
-    const save = () => {
-        setPins(prev => prev.map(p => p.id === pin.id ? { ...p, annotations: paths, highlightPoly: highlightPoly, filters: { brightness: state.brightness, contrast: state.contrast }, notes: notesRef.current.value } : p));
-        alert(t('msgSaved'));
+
+    const handleCanvasClick = (e) => { if (viewState.mode === 'highlight') { const coords = getCoords(e); setHighlightPoly(prev => [...prev, coords]); } };
+    
+    const handleStart = (e) => { 
+        if (viewState.mode !== 'draw') return; 
+        const { x, y } = getCoords(e); 
+        setViewState(p => ({ ...p, isDrawing: true })); 
+        setPaths([...paths, { color: viewState.brushColor.color, category: viewState.brushColor.id, width: viewState.brushSize, points: [{ x, y }] }]); 
     };
+    
+    const handleMove = (e) => { 
+        if (viewState.mode !== 'draw' || !viewState.isDrawing) return; 
+        const { x, y } = getCoords(e); 
+        const newPaths = [...paths]; 
+        newPaths[newPaths.length - 1].points.push({ x, y }); 
+        setPaths(newPaths); 
+    };
+    
+    const handleEnd = () => setViewState(p => ({ ...p, isDrawing: false }));
 
     const groupedCategories = useMemo(() => {
         const groups = {};
@@ -799,42 +915,54 @@ const ImageEditor = ({ pin, setPins, setActiveTab, t }) => {
     return (
         <div className="flex h-full bg-slate-50 overflow-hidden text-slate-800">
              <div className="w-80 bg-white border-r border-slate-200 flex flex-col h-full z-10 shadow-lg shrink-0 overflow-y-auto">
-                 <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-white sticky top-0">
+                 <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-white sticky top-0 z-20">
                      <h3 className="font-bold text-slate-800 flex items-center gap-2"><Sliders size={18}/> {t('editorTitle')}</h3>
-                     <button onClick={() => setActiveTab('map')} className="text-slate-500 hover:text-emerald-600 flex items-center gap-1 text-sm bg-slate-100 px-2 py-1 rounded"><MapIcon size={14}/> {t('backToMap')}</button>
+                     {/* 自动保存状态指示器 */}
+                     <div className="flex items-center gap-1 text-xs font-medium">
+                         {viewState.isSaving ? (
+                             <span className="text-blue-500 flex items-center gap-1"><Cloud size={12} className="animate-pulse"/> {t('statusSaving')}</span>
+                         ) : (
+                             <span className="text-emerald-500 flex items-center gap-1"><Check size={12}/> {t('statusSaved')}</span>
+                         )}
+                     </div>
                  </div>
+                 
                  <div className="p-4 space-y-6">
                     <div className="space-y-2">
-                        <div className="flex justify-between items-center text-xs font-bold text-slate-400 uppercase"><span>{t('zoomLabel')}</span><span>{(state.zoom * 100).toFixed(0)}%</span></div>
+                        <div className="flex justify-between items-center text-xs font-bold text-slate-400 uppercase"><span>{t('zoomLabel')}</span><span>{(viewState.zoom * 100).toFixed(0)}%</span></div>
                         <div className="flex gap-2">
-                            <button onClick={() => setState(p => ({...p, zoom: Math.max(0.1, p.zoom - 0.1)}))} className="p-2 bg-slate-100 rounded hover:bg-slate-200 text-slate-600"><ZoomOut size={16}/></button>
-                            <button onClick={() => setState(p => ({...p, zoom: 1}))} className="flex-1 bg-slate-100 rounded hover:bg-slate-200 text-xs font-mono text-slate-600">1:1</button>
-                            <button onClick={() => setState(p => ({...p, zoom: Math.min(3, p.zoom + 0.1)}))} className="p-2 bg-slate-100 rounded hover:bg-slate-200 text-slate-600"><ZoomIn size={16}/></button>
+                            <button onClick={() => setViewState(p => ({...p, zoom: Math.max(0.1, p.zoom - 0.1)}))} className="p-2 bg-slate-100 rounded hover:bg-slate-200 text-slate-600"><ZoomOut size={16}/></button>
+                            <button onClick={() => setViewState(p => ({...p, zoom: 1}))} className="flex-1 bg-slate-100 rounded hover:bg-slate-200 text-xs font-mono text-slate-600">1:1</button>
+                            <button onClick={() => setViewState(p => ({...p, zoom: Math.min(3, p.zoom + 0.1)}))} className="p-2 bg-slate-100 rounded hover:bg-slate-200 text-slate-600"><ZoomIn size={16}/></button>
                         </div>
                     </div>
+                    
                     <div className="bg-slate-100 p-1 rounded-lg flex">
-                        <button onClick={() => setState(p => ({...p, mode: 'highlight'}))} className={`flex-1 py-1.5 text-sm rounded-md flex items-center justify-center gap-2 transition-all ${state.mode === 'highlight' ? 'bg-white shadow text-blue-600 font-medium' : 'text-slate-500 hover:text-slate-700'}`}><Hexagon size={14} /> {t('modeHighlight')}</button>
-                        <button onClick={() => setState(p => ({...p, mode: 'draw'}))} className={`flex-1 py-1.5 text-sm rounded-md flex items-center justify-center gap-2 transition-all ${state.mode === 'draw' ? 'bg-white shadow text-emerald-600 font-medium' : 'text-slate-500 hover:text-slate-700'}`}><PenTool size={14} /> {t('modeDraw')}</button>
+                        <button onClick={() => setViewState(p => ({...p, mode: 'highlight'}))} className={`flex-1 py-1.5 text-sm rounded-md flex items-center justify-center gap-2 transition-all ${viewState.mode === 'highlight' ? 'bg-white shadow text-blue-600 font-medium' : 'text-slate-500 hover:text-slate-700'}`}><Hexagon size={14} /> {t('modeHighlight')}</button>
+                        <button onClick={() => setViewState(p => ({...p, mode: 'draw'}))} className={`flex-1 py-1.5 text-sm rounded-md flex items-center justify-center gap-2 transition-all ${viewState.mode === 'draw' ? 'bg-white shadow text-emerald-600 font-medium' : 'text-slate-500 hover:text-slate-700'}`}><PenTool size={14} /> {t('modeDraw')}</button>
                     </div>
-                    {state.mode === 'highlight' && (
+
+                    {viewState.mode === 'highlight' && (
                         <div className="bg-blue-50 p-4 rounded-xl border border-blue-100 space-y-3 animate-fade-in">
                             <div className="flex items-start gap-2">
                                 <Hexagon className="text-blue-500 mt-0.5 shrink-0" size={16} />
                                 <div><h4 className="text-sm font-bold text-blue-700">{t('highlightTitle')}</h4><p className="text-xs text-blue-600/80 mt-1 leading-relaxed">{t('highlightDesc')}</p></div>
                             </div>
+                            
                             <div className="space-y-4 p-3 bg-white/50 rounded-lg border border-blue-200">
                                 <h4 className="text-xs font-bold text-blue-400 uppercase">{t('imageParams')}</h4>
-                                <div><div className="flex justify-between text-xs text-blue-600 mb-1"><span>{t('brightness')}</span><span>{state.brightness}%</span></div><input type="range" min="50" max="150" value={state.brightness} onChange={(e) => setState(p => ({...p, brightness: parseInt(e.target.value)}))} className="w-full h-1 bg-blue-200 rounded-lg appearance-none cursor-pointer accent-blue-500"/></div>
-                                <div><div className="flex justify-between text-xs text-blue-600 mb-1"><span>{t('contrast')}</span><span>{state.contrast}%</span></div><input type="range" min="50" max="150" value={state.contrast} onChange={(e) => setState(p => ({...p, contrast: parseInt(e.target.value)}))} className="w-full h-1 bg-blue-200 rounded-lg appearance-none cursor-pointer accent-blue-500"/></div>
+                                <div><div className="flex justify-between text-xs text-blue-600 mb-1"><span>{t('brightness')}</span><span>{filters.brightness}%</span></div><input type="range" min="50" max="150" value={filters.brightness} onChange={(e) => setFilters(p => ({...p, brightness: parseInt(e.target.value)}))} className="w-full h-1 bg-blue-200 rounded-lg appearance-none cursor-pointer accent-blue-500"/></div>
+                                <div><div className="flex justify-between text-xs text-blue-600 mb-1"><span>{t('contrast')}</span><span>{filters.contrast}%</span></div><input type="range" min="50" max="150" value={filters.contrast} onChange={(e) => setFilters(p => ({...p, contrast: parseInt(e.target.value)}))} className="w-full h-1 bg-blue-200 rounded-lg appearance-none cursor-pointer accent-blue-500"/></div>
                             </div>
+
                             <div className="flex items-center justify-between text-xs text-blue-800 bg-white/50 p-2 rounded"><span>{t('pointsCount')}: <strong>{highlightPoly.length}</strong></span>{highlightPoly.length < 3 && <span className="text-orange-500">{t('minPoints')}</span>}</div>
-                            <div className="grid grid-cols-2 gap-2">
-                                <button onClick={() => setHighlightPoly([])} className="px-3 py-1.5 bg-white border border-blue-200 text-blue-600 text-xs rounded hover:bg-blue-50 transition-colors">{t('resetSelection')}</button>
-                                <button disabled={highlightPoly.length < 3} className={`px-3 py-1.5 text-xs rounded transition-colors flex items-center justify-center gap-1 ${highlightPoly.length >= 3 ? 'bg-blue-600 text-white hover:bg-blue-700 shadow-sm' : 'bg-slate-200 text-slate-400 cursor-not-allowed'}`}><CheckCircle2 size={12} /> {t('applySelection')}</button>
+                            <div className="grid grid-cols-1">
+                                <button onClick={() => setHighlightPoly([])} className="px-3 py-2 bg-white border border-blue-200 text-blue-600 text-xs rounded hover:bg-blue-50 transition-colors">{t('resetSelection')}</button>
                             </div>
                         </div>
                     )}
-                    {state.mode === 'draw' && (
+
+                    {viewState.mode === 'draw' && (
                         <>
                             <div className="space-y-4">
                                 <h4 className="text-xs font-bold text-slate-400 uppercase">{t('dimensionTitle')}</h4>
@@ -844,7 +972,7 @@ const ImageEditor = ({ pin, setPins, setActiveTab, t }) => {
                                             <div className="text-[10px] font-bold text-slate-400 uppercase mb-2 tracking-wider pl-1">{t(groupKey)}</div>
                                             <div className="space-y-2">
                                                 {items.map(cat => (
-                                                    <button key={cat.id} onClick={() => setState(p => ({...p, brushColor: cat}))} className={`w-full flex items-center gap-3 p-2.5 rounded-lg border text-sm transition-all text-left ${state.brushColor.id === cat.id ? 'border-emerald-500 bg-emerald-50 ring-1 ring-emerald-500 shadow-sm' : 'border-slate-200 hover:bg-slate-50'}`}>
+                                                    <button key={cat.id} onClick={() => setViewState(p => ({...p, brushColor: cat}))} className={`w-full flex items-center gap-3 p-2.5 rounded-lg border text-sm transition-all text-left ${viewState.brushColor.id === cat.id ? 'border-emerald-500 bg-emerald-50 ring-1 ring-emerald-500 shadow-sm' : 'border-slate-200 hover:bg-slate-50'}`}>
                                                         <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: cat.hex }} />
                                                         <span className="text-slate-700 text-xs font-medium leading-tight">{t(cat.nameKey)}</span>
                                                     </button>
@@ -860,31 +988,45 @@ const ImageEditor = ({ pin, setPins, setActiveTab, t }) => {
                             </div>
                              <div className="space-y-2">
                                 <h4 className="text-xs font-bold text-slate-400 uppercase">{t('notesTitle')}</h4>
-                                <textarea ref={notesRef} defaultValue={pin.notes} className="w-full border border-slate-300 rounded-lg p-3 text-sm h-24 focus:ring-2 focus:ring-emerald-500 outline-none resize-none bg-slate-50 text-slate-700 placeholder-slate-400" placeholder={t('notesPlaceholder')} />
+                                <textarea value={notes} onChange={(e) => setNotes(e.target.value)} className="w-full border border-slate-300 rounded-lg p-3 text-sm h-24 focus:ring-2 focus:ring-emerald-500 outline-none resize-none bg-slate-50 text-slate-700 placeholder-slate-400" placeholder={t('notesPlaceholder')} />
                             </div>
                         </>
                     )}
-                    <div className="pt-4 border-t border-slate-200 mt-auto space-y-2">
-                        <button onClick={save} className="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-2.5 rounded-lg flex items-center justify-center gap-2 shadow-lg shadow-emerald-100 font-medium transition-transform active:scale-95"><Save size={18} /> {t('saveChanges')}</button>
-                        <button onClick={() => { if(confirm(t('confirmDeletePin'))) { setPins(prev => prev.filter(p => p.id !== pin.id)); setActiveTab('map'); } }} className="w-full bg-white border border-red-200 text-red-500 hover:bg-red-50 py-2.5 rounded-lg text-sm transition-colors">{t('deletePin')}</button>
+
+                    <div className="pt-4 border-t border-slate-200 mt-auto">
+                        <button onClick={() => setActiveTab('map')} className="w-full bg-slate-100 hover:bg-slate-200 text-slate-600 py-2.5 rounded-lg flex items-center justify-center gap-2 font-medium transition-colors mb-2">
+                            <MapIcon size={16} /> {t('backToMap')}
+                        </button>
+                        <button onClick={() => { if(confirm(t('confirmDeletePin'))) { setPins(prev => prev.filter(p => p.id !== pin.id)); setActiveTab('map'); } }} className="w-full bg-white border border-red-200 text-red-500 hover:bg-red-50 py-2.5 rounded-lg text-sm transition-colors">
+                            {t('deletePin')}
+                        </button>
                     </div>
                  </div>
              </div>
+
+             {/* 右侧画布 */}
              <div className="flex-1 bg-slate-100 overflow-hidden flex items-center justify-center p-8 relative">
                  <div ref={containerRef} className="overflow-auto w-full h-full flex items-center justify-center custom-scrollbar">
-                     {!state.isImageLoaded && <div className="absolute inset-0 flex items-center justify-center text-slate-400 gap-2"><div className="w-5 h-5 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin"></div>Loading...</div>}
-                     <canvas ref={canvasRef} onClick={handleCanvasClick} onMouseDown={handleStart} onMouseMove={handleMove} onMouseUp={handleEnd} onMouseLeave={handleEnd} onTouchStart={handleStart} onTouchMove={handleMove} onTouchEnd={handleEnd} className={`block shadow-xl bg-white transition-transform duration-200 ease-out origin-center ${state.mode === 'draw' ? 'cursor-crosshair' : 'cursor-crosshair'}`} style={{ transform: `scale(${state.zoom})` }} />
+                     {!viewState.isImageLoaded && <div className="absolute inset-0 flex items-center justify-center text-slate-400 gap-2"><div className="w-5 h-5 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin"></div>Loading...</div>}
+                     <canvas 
+                        ref={canvasRef} 
+                        onClick={handleCanvasClick}
+                        onMouseDown={handleStart} onMouseMove={handleMove} onMouseUp={handleEnd} onMouseLeave={handleEnd}
+                        onTouchStart={handleStart} onTouchMove={handleMove} onTouchEnd={handleEnd}
+                        className={`block shadow-xl bg-white transition-transform duration-200 ease-out origin-center ${viewState.mode === 'draw' ? 'cursor-crosshair' : 'cursor-crosshair'}`}
+                        style={{ transform: `scale(${viewState.zoom})` }}
+                    />
                  </div>
                  <div className="absolute bottom-6 left-1/2 transform -translate-x-1/2 flex items-center gap-4 bg-white/90 backdrop-blur shadow-lg px-4 py-2 rounded-full border border-slate-200">
                      <div className="flex items-center gap-2 border-r border-slate-200 pr-4">
-                        <button onClick={() => setState(p => ({...p, zoom: Math.max(0.1, p.zoom - 0.1)}))} className="p-1.5 hover:bg-slate-100 rounded text-slate-600"><ZoomOut size={16}/></button>
-                        <span className="text-xs font-mono text-slate-600 w-12 text-center">{(state.zoom * 100).toFixed(0)}%</span>
-                        <button onClick={() => setState(p => ({...p, zoom: Math.min(3, p.zoom + 0.1)}))} className="p-1.5 hover:bg-slate-100 rounded text-slate-600"><ZoomIn size={16}/></button>
-                        <button onClick={() => setState(p => ({...p, zoom: 1}))} className="text-xs text-slate-400 hover:text-slate-600 ml-1"><Maximize size={14}/></button>
+                        <button onClick={() => setViewState(p => ({...p, zoom: Math.max(0.1, p.zoom - 0.1)}))} className="p-1.5 hover:bg-slate-100 rounded text-slate-600"><ZoomOut size={16}/></button>
+                        <span className="text-xs font-mono text-slate-600 w-12 text-center">{(viewState.zoom * 100).toFixed(0)}%</span>
+                        <button onClick={() => setViewState(p => ({...p, zoom: Math.min(3, p.zoom + 0.1)}))} className="p-1.5 hover:bg-slate-100 rounded text-slate-600"><ZoomIn size={16}/></button>
+                        <button onClick={() => setViewState(p => ({...p, zoom: 1}))} className="text-xs text-slate-400 hover:text-slate-600 ml-1"><Maximize size={14}/></button>
                      </div>
                      <div className="flex items-center gap-2 text-xs font-medium text-slate-600">
-                        <span className={`w-2 h-2 rounded-full ${state.mode === 'highlight' ? 'bg-blue-500' : 'bg-emerald-500'}`}></span>
-                        {state.mode === 'highlight' ? t('currentModeHighlight') : t('currentModeDraw')}
+                        <span className={`w-2 h-2 rounded-full ${viewState.mode === 'highlight' ? 'bg-blue-500' : 'bg-emerald-500'}`}></span>
+                        {viewState.mode === 'highlight' ? t('currentModeHighlight') : t('currentModeDraw')}
                      </div>
                  </div>
              </div>
