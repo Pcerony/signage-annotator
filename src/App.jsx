@@ -31,9 +31,11 @@ import {
   CheckCircle2,
   ChevronDown,
   ChevronRight,
+  ChevronLeft, // Added
   MapPin,
   FilePlus,
   Maximize,
+  Minimize, 
   Download,
   UploadCloud,
   PieChart,
@@ -41,7 +43,14 @@ import {
   Globe,
   Leaf,
   Cloud,
-  Check
+  Check,
+  RefreshCw,
+  ImageOff,
+  FolderPlus,
+  Move,
+  Tag,
+  Copy,
+  FileText
 } from 'lucide-react';
 
 // --- 翻译字典 ---
@@ -66,6 +75,7 @@ const TRANSLATIONS = {
     placePinTip: "请在地图上点击位置以放置图片",
     listTitle: "标识清单",
     batchUpload: "批量添加图片",
+    createZoneFolder: "新建区域文件夹",
     unlocatedFolder: "📍 未定点 (待放置)",
     unlocatedLabel: "点击地图放置",
     zoneUnzoned: "未分区",
@@ -101,6 +111,7 @@ const TRANSLATIONS = {
     statusSaved: "已同步",
     deletePin: "删除此点位",
     confirmDeletePin: "确定删除此标识点吗？此操作不可恢复。",
+    duplicatePin: "复制图片(用于标注另一标识)",
     currentModeHighlight: "突出选区模式",
     currentModeDraw: "标注分析模式",
     statsTitle: "标识系统数据看板",
@@ -138,7 +149,19 @@ const TRANSLATIONS = {
     alertZoneExist: "区域 ID 已存在。",
     alertZone3Points: "区域至少需要3个点",
     removeFromGroup: "从组合中移除",
-    mergeWithPrev: "与上一张合并"
+    mergeWithPrev: "与上一张合并",
+    btnReplaceMap: "更换底图",
+    btnRemoveMap: "移除底图",
+    btnAddImageNoMap: "直接添加图片 (跳过地图)",
+    confirmRemoveMap: "确定要移除底图吗？已有的标点数据会保留在列表中，但将失去空间位置显示。",
+    dropToZone: "拖放至此区域",
+    drawZoneOnMap: "在地图上框选此区域",
+    noTags: "暂无标注 (请选择右侧维度进行绘制)",
+    listFullscreen: "全屏/退出全屏",
+    exportLLM: "导出 AI 分析报告 (TXT)",
+    exportLLMTitle: "导出自然语言描述数据，供 LLM 分析",
+    prevImage: "上一张 ([)",
+    nextImage: "下一张 (])"
   },
   en: {
     appTitle: "Signage Annotator",
@@ -160,6 +183,7 @@ const TRANSLATIONS = {
     placePinTip: "Click on map to place the pending image",
     listTitle: "Signage List",
     batchUpload: "Batch Add",
+    createZoneFolder: "New Zone Folder",
     unlocatedFolder: "📍 Unlocated (Pending)",
     unlocatedLabel: "Click map to place",
     zoneUnzoned: "Unzoned",
@@ -195,6 +219,7 @@ const TRANSLATIONS = {
     statusSaved: "Synced",
     deletePin: "Delete Pin",
     confirmDeletePin: "Are you sure you want to delete this pin? This cannot be undone.",
+    duplicatePin: "Duplicate (For 2nd Sign)",
     currentModeHighlight: "Highlight Mode",
     currentModeDraw: "Annotation Mode",
     statsTitle: "Analytics Dashboard",
@@ -232,7 +257,19 @@ const TRANSLATIONS = {
     alertZoneExist: "Zone ID already exists.",
     alertZone3Points: "Zone needs at least 3 points",
     removeFromGroup: "Remove from Group",
-    mergeWithPrev: "Merge with Previous"
+    mergeWithPrev: "Merge with Previous",
+    btnReplaceMap: "Replace Map",
+    btnRemoveMap: "Remove Map",
+    btnAddImageNoMap: "Add Images (Skip Map)",
+    confirmRemoveMap: "Are you sure? Pins will remain in list but lose spatial context.",
+    dropToZone: "Drop to move here",
+    drawZoneOnMap: "Draw zone boundary on map",
+    noTags: "No tags",
+    listFullscreen: "Fullscreen / Exit",
+    exportLLM: "Export AI Report (TXT)",
+    exportLLMTitle: "Export natural language data for LLM analysis",
+    prevImage: "Previous ([)",
+    nextImage: "Next (])"
   }
 };
 
@@ -431,6 +468,9 @@ const MapView = ({
     const [draggedListItemIndex, setDraggedListItemIndex] = useState(null);
     const [placingPinId, setPlacingPinId] = useState(null);
     const [mapZoom, setMapZoom] = useState(1); 
+    const [drawingForZoneId, setDrawingForZoneId] = useState(null); 
+    
+    const [isListFullscreen, setIsListFullscreen] = useState(false);
 
     const contentRef = useRef(null);
     const fileInputRef = useRef(null);
@@ -503,6 +543,23 @@ const MapView = ({
         setPins(newPins);
         setDraggedListItemIndex(null);
     };
+
+    const handleZoneDrop = (e, targetZoneId) => {
+        e.preventDefault();
+        if (draggedListItemIndex === null) return;
+        const newPins = [...pins];
+        const item = newPins[draggedListItemIndex];
+        if (targetZoneId === 'unlocated') {
+            item.manualZoneId = null; item.x = null; item.y = null;
+        } else if (targetZoneId === '?') {
+             item.manualZoneId = null; 
+        } else {
+             item.manualZoneId = targetZoneId;
+        }
+        setPins(newPins);
+        setDraggedListItemIndex(null);
+    };
+
     const toggleGroup = (currentIndex, previousIndex) => {
         const newPins = [...pins];
         const currentPin = newPins[currentIndex];
@@ -515,6 +572,20 @@ const MapView = ({
         }
         setPins(newPins);
     };
+
+    const handleDuplicatePin = (e, pin) => {
+        e.stopPropagation();
+        const newPin = {
+            ...pin,
+            id: Date.now() + Math.random(),
+            annotations: [], 
+            highlightPoly: [],
+            notes: '',
+            groupId: null
+        };
+        setPins(prev => [...prev, newPin]);
+    };
+
     const handleBatchUpload = (e) => {
         const files = Array.from(e.target.files);
         if (files.length === 0) return;
@@ -527,7 +598,8 @@ const MapView = ({
                         x: null, y: null,
                         imageSrc: event.target.result, originalImageSrc: event.target.result,
                         filters: { brightness: 100, contrast: 100 },
-                        annotations: [], highlightPoly: [], notes: '', groupId: null
+                        annotations: [], highlightPoly: [], notes: '', groupId: null,
+                        manualZoneId: null
                     });
                 };
                 reader.readAsDataURL(file);
@@ -537,6 +609,17 @@ const MapView = ({
             setCollapsedZones(prev => ({ ...prev, 'unlocated': false }));
         });
     };
+
+    const handleCreateZoneFolder = () => {
+        let nextLetter = 'A';
+        for(let i=0; i<26; i++) {
+            const char = String.fromCharCode(65 + i);
+            if(!zones.find(z => z.id === char)) { nextLetter = char; break; }
+        }
+        setZones([...zones, { id: nextLetter, name: '未标定区域', colorIndex: zones.length % ZONE_PALETTE.length, points: [] }]);
+    };
+
+    const startDrawingForZone = (zoneId) => { setDrawingForZoneId(zoneId); setCurrentZonePoints([]); setMapMode('draw_zone'); };
     const startPlacingPin = (pinId) => { setPlacingPinId(pinId); setMapMode('place_pending'); };
     const handleMouseDown = (e) => {
         if (!mapImage) return;
@@ -571,27 +654,31 @@ const MapView = ({
     
     // 修复：独立的删除处理函数
     const handleDeletePin = (e, id) => {
-        e.stopPropagation(); // 阻止事件冒泡
-        if (window.confirm(t('confirmDeletePin'))) {
-            setPins(prev => prev.filter(p => p.id !== id));
-            // 如果删除了当前正在编辑的 Pin，清理编辑状态
-            if (editingPinId === id) {
-                setEditingPinId(null);
-            }
-        }
+        e.stopPropagation(); 
+        // 移除二次确认，直接删除
+        setPins(prev => prev.filter(p => p.id !== id));
+        if (editingPinId === id) setEditingPinId(null);
     };
 
     const finishZone = () => {
         if (currentZonePoints.length < 3) return alert(t('alertZone3Points'));
-        let nextLetter = 'A';
-        for(let i=0; i<26; i++) {
-            const char = String.fromCharCode(65 + i);
-            if(!zones.find(z => z.id === char)) { nextLetter = char; break; }
+        if (drawingForZoneId) {
+            setZones(prev => prev.map(z => z.id === drawingForZoneId ? { ...z, points: currentZonePoints } : z));
+            setDrawingForZoneId(null);
+        } else {
+            let nextLetter = 'A';
+            for(let i=0; i<26; i++) {
+                const char = String.fromCharCode(65 + i);
+                if(!zones.find(z => z.id === char)) { nextLetter = char; break; }
+            }
+            setZones([...zones, { id: nextLetter, name: '', colorIndex: zones.length % ZONE_PALETTE.length, points: currentZonePoints }]);
         }
-        setZones([...zones, { id: nextLetter, name: '', colorIndex: zones.length % ZONE_PALETTE.length, points: currentZonePoints }]);
         setCurrentZonePoints([]);
         setMapMode('view');
     };
+    
+    const cancelDraw = () => { setCurrentZonePoints([]); setDrawingForZoneId(null); setMapMode('view'); };
+
     const handleZoneSave = (oldId, newData) => {
         if (oldId !== newData.id && zones.find(z => z.id === newData.id)) return alert(t('alertZoneExist'));
         setZones(zones.map(z => z.id === oldId ? { ...z, id: newData.id, name: newData.name, colorIndex: newData.colorIndex } : z));
@@ -602,117 +689,194 @@ const MapView = ({
         setEditingZone(null);
     };
 
+    const handleRemoveMap = () => {
+        if (confirm(t('confirmRemoveMap'))) {
+            setMapImage(null);
+        }
+    };
+
     return (
         <div className="flex h-full bg-slate-50 overflow-hidden" onMouseUp={handleMouseUp} onMouseMove={handleMouseMove} onTouchEnd={handleMouseUp} onTouchMove={handleMouseMove}>
             {editingZone && <ZoneEditModal zone={editingZone} onClose={() => setEditingZone(null)} onSave={handleZoneSave} onDelete={handleZoneDelete} t={t} />}
-            <div className="flex-1 flex flex-col p-4 overflow-hidden relative">
-                <div className="absolute top-6 left-6 z-20 bg-white shadow-lg border border-slate-100 rounded-xl p-1.5 flex flex-col gap-2">
-                    <TooltipButton active={mapMode === 'view'} onClick={() => setMapMode('view')} icon={<MousePointer2 size={20} />} label={t('mapToolbarView')} />
-                    <TooltipButton active={mapMode === 'add_pin'} onClick={() => setMapMode('add_pin')} icon={<Plus size={20} />} label={t('mapToolbarAdd')} />
-                    <div className="w-full h-px bg-slate-200 my-1"></div>
-                    <TooltipButton active={mapMode === 'draw_zone'} onClick={() => { setMapMode('draw_zone'); setCurrentZonePoints([]); }} icon={<Layers size={20} />} label={t('mapToolbarDrawZone')} />
-                    <TooltipButton active={mapMode === 'edit_zone'} onClick={() => setMapMode(mapMode === 'edit_zone' ? 'view' : 'edit_zone')} icon={<Edit3 size={20} />} label={t('mapToolbarEditZone')} />
-                </div>
-                {mapMode === 'place_pending' && <div className="absolute top-6 left-20 z-20 bg-emerald-600 text-white px-4 py-2 rounded-lg shadow-lg text-sm flex items-center gap-3 animate-pulse cursor-default pointer-events-none"><MapPin size={16} /><span>{t('placePinTip')}</span></div>}
-                {mapMode === 'draw_zone' && <div className="absolute top-6 left-20 z-20 bg-slate-800/90 backdrop-blur text-white px-4 py-2 rounded-lg shadow-lg text-sm flex items-center gap-3 animate-fade-in"><span>{t('pointsCount')}: {currentZonePoints.length}</span><div className="h-4 w-px bg-slate-600"></div><button onClick={finishZone} className="bg-emerald-500 hover:bg-emerald-600 px-3 py-1 rounded text-xs font-bold transition-colors">{t('zoneClose')}</button><button onClick={() => { if(currentZonePoints.length > 0) setCurrentZonePoints(prev => prev.slice(0, -1)); else setMapMode('view'); }} className="text-slate-300 hover:text-white flex items-center gap-1"><CornerUpLeft size={14}/> {t('undoPoint')}</button></div>}
-                <div className="bg-white rounded-xl shadow-inner border border-slate-200 h-full flex items-center justify-center overflow-hidden relative">
-                    {!mapImage ? (
-                        <div className="text-center p-10 bg-slate-50 rounded-xl border-2 border-dashed border-slate-300">
-                            <Upload className="w-16 h-16 text-slate-300 mx-auto mb-4" />
-                            <h3 className="text-slate-600 font-medium mb-4">{t('uploadMap')}</h3>
-                            <button onClick={() => fileInputRef.current.click()} className="bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-2 rounded-lg transition-colors flex items-center gap-2 mx-auto shadow-lg shadow-emerald-200">{t('selectImage')}</button>
-                            <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={(e) => { const file = e.target.files[0]; if (file) { const reader = new FileReader(); reader.onload = (ev) => setMapImage(ev.target.result); reader.readAsDataURL(file); } }} />
-                        </div>
-                    ) : (
-                        <div className="w-full h-full overflow-auto bg-slate-100 relative custom-scrollbar">
-                            <div 
-                                ref={contentRef} 
-                                className="relative inline-block" 
-                                style={{ 
-                                    cursor: mapMode === 'add_pin' ? 'crosshair' : mapMode === 'draw_zone' ? 'crosshair' : mapMode === 'place_pending' ? 'cell' : 'default',
-                                    width: `${mapZoom * 100}%`,
-                                    height: 'auto'
-                                }}
-                            >
-                                <img src={mapImage} alt="Map" className="block w-full h-auto pointer-events-auto" onMouseDown={handleMouseDown} onClick={handleMapClick} draggable={false} />
-                                <svg className="absolute top-0 left-0 w-full h-full pointer-events-none" style={{ zIndex: 10 }} viewBox="0 0 100 100" preserveAspectRatio="none">
-                                    {zones.map((zone) => {
-                                        const style = ZONE_PALETTE[zone.colorIndex || 0];
-                                        return (
-                                            <g key={zone.id}>
-                                                <polygon points={zone.points.map(p => `${p.x},${p.y}`).join(' ')} fill={style.fill} stroke={style.stroke} strokeWidth="0.5" strokeLinejoin="round" />
-                                                {zone.points.length > 0 && <text x={zone.points[0].x} y={zone.points[0].y} fill={style.stroke} fontSize="1.5" fontWeight="900" paintOrder="stroke" stroke="white" strokeWidth="0.3" dy="-1">{zone.name ? `${zone.id}-${zone.name}` : `${zone.id}区`}</text>}
-                                                {mapMode === 'edit_zone' && zone.points.map((p, pIdx) => (
-                                                    <circle key={pIdx} cx={p.x} cy={p.y} r="1" fill="white" stroke={style.stroke} strokeWidth="0.5" className="cursor-move pointer-events-auto hover:r-1.5 transition-all" onMouseDown={(e) => { e.stopPropagation(); setDraggingZonePoint({ zoneId: zone.id, pointIndex: pIdx }); }} />
-                                                ))}
-                                            </g>
-                                        );
-                                    })}
-                                    {currentZonePoints.length > 0 && (
-                                        <g>
-                                            <polygon points={currentZonePoints.map(p => `${p.x},${p.y}`).join(' ')} fill="rgba(0,0,0,0.1)" stroke="#333" strokeWidth="0.5" strokeDasharray="1" />
-                                            <line x1={currentZonePoints[currentZonePoints.length-1].x} y1={currentZonePoints[currentZonePoints.length-1].y} x2={mousePos.x} y2={mousePos.y} stroke="#333" strokeWidth="0.3" strokeDasharray="1" />
-                                            <line x1={mousePos.x} y1={mousePos.y} x2={currentZonePoints[0].x} y2={currentZonePoints[0].y} stroke="rgba(16, 185, 129, 0.5)" strokeWidth="0.5" />
-                                            {currentZonePoints.map((p, i) => <circle key={i} cx={p.x} cy={p.y} r="0.8" fill="white" stroke="#333" strokeWidth="0.2" />)}
-                                        </g>
-                                    )}
-                                </svg>
-                                {pinsWithInfo.filter(p => p.x !== null).map(pin => (
-                                    <div key={pin.id} className={`absolute transform -translate-x-1/2 -translate-y-full group cursor-pointer transition-transform duration-200 z-30 ${draggingPinId === pin.id ? 'scale-125 z-50' : ''}`} style={{ left: `${pin.x}%`, top: `${pin.y}%` }} onMouseDown={(e) => { e.stopPropagation(); if(mapMode === 'view') setDraggingPinId(pin.id); }} onClick={(e) => { if(!draggingPinId) { e.stopPropagation(); const listEl = document.getElementById(`pin-item-${pin.id}`); if(listEl) { listEl.scrollIntoView({ behavior: 'smooth', block: 'center' }); listEl.classList.add('bg-yellow-100'); setTimeout(() => listEl.classList.remove('bg-yellow-100'), 1000); } if (mapMode === 'view') setEditingPinId(pin.id); } }}>
-                                        <div className="relative flex flex-col items-center">
-                                            <div className={`px-2 py-0.5 rounded shadow-sm text-[10px] font-bold mb-1 whitespace-nowrap backdrop-blur-sm transition-colors ${editingPinId === pin.id ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white/90 text-slate-700 border border-slate-200'}`}>{pin.displayName}</div>
-                                            <div className={`w-8 h-8 rounded-full border-2 border-white shadow-lg flex items-center justify-center transition-colors ${editingPinId === pin.id ? 'bg-emerald-500' : 'bg-slate-700 hover:bg-slate-600'}`}>
-                                                {pin.displayName.includes('-') && !pin.displayName.endsWith('-a') && pin.groupId ? <div className="w-2.5 h-2.5 rounded-full bg-slate-300"></div> : pin.annotations.length > 0 ? <div className="w-2.5 h-2.5 rounded-full bg-white"></div> : <div className="w-2 h-2 rounded-full border border-white/50"></div>}
-                                            </div>
-                                            <div className={`w-0 h-0 border-l-[6px] border-r-[6px] border-t-[8px] border-transparent ${editingPinId === pin.id ? 'border-t-emerald-500' : 'border-t-slate-700 hover:border-t-slate-600'}`}></div>
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-                    )}
-                    <input type="file" ref={pinInputRef} className="hidden" accept="image/*" onChange={(e) => { const file = e.target.files[0]; if (file) { const reader = new FileReader(); reader.onload = (event) => { const newPin = { id: Date.now(), x: tempClickPos.x, y: tempClickPos.y, imageSrc: event.target.result, originalImageSrc: event.target.result, filters: { brightness: 100, contrast: 100 }, annotations: [], highlightPoly: [], notes: '', groupId: null }; setPins([...pins, newPin]); setMapMode('view'); }; reader.readAsDataURL(file); } }} />
+            
+            {!isListFullscreen && (
+                <div className="flex-1 flex flex-col p-4 overflow-hidden relative">
+                    <div className="absolute top-6 left-6 z-20 bg-white shadow-lg border border-slate-100 rounded-xl p-1.5 flex flex-col gap-2">
+                        <TooltipButton active={mapMode === 'view'} onClick={() => setMapMode('view')} icon={<MousePointer2 size={20} />} label={t('mapToolbarView')} />
+                        <TooltipButton active={mapMode === 'add_pin'} onClick={() => setMapMode('add_pin')} icon={<Plus size={20} />} label={t('mapToolbarAdd')} />
+                        <div className="w-full h-px bg-slate-200 my-1"></div>
+                        <TooltipButton active={mapMode === 'draw_zone' && !drawingForZoneId} onClick={() => { setDrawingForZoneId(null); setMapMode('draw_zone'); setCurrentZonePoints([]); }} icon={<Layers size={20} />} label={t('mapToolbarDrawZone')} />
+                        <TooltipButton active={mapMode === 'edit_zone'} onClick={() => setMapMode(mapMode === 'edit_zone' ? 'view' : 'edit_zone')} icon={<Edit3 size={20} />} label={t('mapToolbarEditZone')} />
+                    </div>
                     
                     {mapImage && (
-                        <div className="absolute bottom-6 right-6 flex items-center gap-2 bg-white/90 backdrop-blur shadow-lg px-4 py-2 rounded-full border border-slate-200 z-50">
-                            <button onClick={() => setMapZoom(z => Math.max(0.25, z - 0.25))} className="p-1.5 hover:bg-slate-100 rounded text-slate-600"><ZoomOut size={16}/></button>
-                            <span className="text-xs font-mono text-slate-600 w-12 text-center">{(mapZoom * 100).toFixed(0)}%</span>
-                            <button onClick={() => setMapZoom(z => Math.min(4, z + 0.25))} className="p-1.5 hover:bg-slate-100 rounded text-slate-600"><ZoomIn size={16}/></button>
-                            <button onClick={() => setMapZoom(1)} className="text-xs text-slate-400 hover:text-slate-600 ml-1"><Maximize size={14}/></button>
+                        <div className="absolute top-6 right-6 z-20 flex gap-2">
+                            <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={(e) => { const file = e.target.files[0]; if (file) { const reader = new FileReader(); reader.onload = (ev) => setMapImage(ev.target.result); reader.readAsDataURL(file); } }} />
+                            <button onClick={() => fileInputRef.current.click()} className="flex items-center gap-1 bg-white hover:bg-slate-50 text-slate-600 px-3 py-2 rounded-lg shadow-md border border-slate-200 text-xs font-medium transition-colors">
+                                <RefreshCw size={14} /> {t('btnReplaceMap')}
+                            </button>
+                            <button onClick={handleRemoveMap} className="flex items-center gap-1 bg-white hover:bg-red-50 text-red-500 px-3 py-2 rounded-lg shadow-md border border-slate-200 text-xs font-medium transition-colors">
+                                <ImageOff size={14} /> {t('btnRemoveMap')}
+                            </button>
                         </div>
                     )}
+
+                    {mapMode === 'place_pending' && <div className="absolute top-6 left-20 z-20 bg-emerald-600 text-white px-4 py-2 rounded-lg shadow-lg text-sm flex items-center gap-3 animate-pulse cursor-default pointer-events-none"><MapPin size={16} /><span>{t('placePinTip')}</span></div>}
+                    {mapMode === 'draw_zone' && <div className="absolute top-6 left-20 z-20 bg-slate-800/90 backdrop-blur text-white px-4 py-2 rounded-lg shadow-lg text-sm flex items-center gap-3 animate-fade-in"><span>{drawingForZoneId ? `绘制 ${drawingForZoneId}区 边界` : t('pointsCount')}: {currentZonePoints.length}</span><div className="h-4 w-px bg-slate-600"></div><button onClick={finishZone} className="bg-emerald-500 hover:bg-emerald-600 px-3 py-1 rounded text-xs font-bold transition-colors">{t('zoneClose')}</button><button onClick={() => { if(currentZonePoints.length > 0) setCurrentZonePoints(prev => prev.slice(0, -1)); else cancelDraw(); }} className="text-slate-300 hover:text-white flex items-center gap-1"><CornerUpLeft size={14}/> {t('undoPoint')}</button></div>}
+                    
+                    <div className="bg-white rounded-xl shadow-inner border border-slate-200 h-full flex items-center justify-center overflow-hidden relative">
+                        {!mapImage ? (
+                            <div className="text-center p-10 bg-slate-50 rounded-xl border-2 border-dashed border-slate-300 max-w-md w-full">
+                                <Upload className="w-16 h-16 text-slate-300 mx-auto mb-4" />
+                                <h3 className="text-slate-600 font-medium mb-4">{t('uploadMap')}</h3>
+                                <div className="flex flex-col gap-3">
+                                    <button onClick={() => fileInputRef.current.click()} className="bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-2.5 rounded-lg transition-colors flex items-center justify-center gap-2 shadow-lg shadow-emerald-200 w-full">
+                                        <ImageIcon size={18} /> {t('selectImage')}
+                                    </button>
+                                    <div className="flex items-center gap-2 text-xs text-slate-400">
+                                        <div className="h-px bg-slate-200 flex-1"></div>
+                                        <span>OR</span>
+                                        <div className="h-px bg-slate-200 flex-1"></div>
+                                    </div>
+                                    <button onClick={() => batchInputRef.current.click()} className="bg-white border border-slate-200 hover:bg-slate-50 text-slate-600 px-6 py-2.5 rounded-lg transition-colors flex items-center justify-center gap-2 w-full">
+                                        <FilePlus size={18} /> {t('btnAddImageNoMap')}
+                                    </button>
+                                </div>
+                                <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={(e) => { const file = e.target.files[0]; if (file) { const reader = new FileReader(); reader.onload = (ev) => setMapImage(ev.target.result); reader.readAsDataURL(file); } }} />
+                            </div>
+                        ) : (
+                            <div className="w-full h-full overflow-auto bg-slate-100 relative custom-scrollbar">
+                                <div 
+                                    ref={contentRef} 
+                                    className="relative inline-block" 
+                                    style={{ 
+                                        cursor: mapMode === 'add_pin' ? 'crosshair' : mapMode === 'draw_zone' ? 'crosshair' : mapMode === 'place_pending' ? 'cell' : 'default',
+                                        width: `${mapZoom * 100}%`,
+                                        height: 'auto'
+                                    }}
+                                >
+                                    <img src={mapImage} alt="Map" className="block w-full h-auto pointer-events-auto" onMouseDown={handleMouseDown} onClick={handleMapClick} draggable={false} />
+                                    <svg className="absolute top-0 left-0 w-full h-full pointer-events-none" style={{ zIndex: 10 }} viewBox="0 0 100 100" preserveAspectRatio="none">
+                                        {zones.map((zone) => {
+                                            const style = ZONE_PALETTE[zone.colorIndex || 0];
+                                            return (
+                                                <g key={zone.id}>
+                                                    <polygon points={zone.points.map(p => `${p.x},${p.y}`).join(' ')} fill={style.fill} stroke={style.stroke} strokeWidth="0.5" strokeLinejoin="round" />
+                                                    {zone.points.length > 0 && <text x={zone.points[0].x} y={zone.points[0].y} fill={style.stroke} fontSize="1.5" fontWeight="900" paintOrder="stroke" stroke="white" strokeWidth="0.3" dy="-1">{zone.name ? `${zone.id}-${zone.name}` : `${zone.id}区`}</text>}
+                                                    {mapMode === 'edit_zone' && zone.points.map((p, pIdx) => (
+                                                        <circle key={pIdx} cx={p.x} cy={p.y} r="1" fill="white" stroke={style.stroke} strokeWidth="0.5" className="cursor-move pointer-events-auto hover:r-1.5 transition-all" onMouseDown={(e) => { e.stopPropagation(); setDraggingZonePoint({ zoneId: zone.id, pointIndex: pIdx }); }} />
+                                                    ))}
+                                                </g>
+                                            );
+                                        })}
+                                        {currentZonePoints.length > 0 && (
+                                            <g>
+                                                <polygon points={currentZonePoints.map(p => `${p.x},${p.y}`).join(' ')} fill="rgba(0,0,0,0.1)" stroke="#333" strokeWidth="0.5" strokeDasharray="1" />
+                                                <line x1={currentZonePoints[currentZonePoints.length-1].x} y1={currentZonePoints[currentZonePoints.length-1].y} x2={mousePos.x} y2={mousePos.y} stroke="#333" strokeWidth="0.3" strokeDasharray="1" />
+                                                <line x1={mousePos.x} y1={mousePos.y} x2={currentZonePoints[0].x} y2={currentZonePoints[0].y} stroke="rgba(16, 185, 129, 0.5)" strokeWidth="0.5" />
+                                                {currentZonePoints.map((p, i) => <circle key={i} cx={p.x} cy={p.y} r="0.8" fill="white" stroke="#333" strokeWidth="0.2" />)}
+                                            </g>
+                                        )}
+                                    </svg>
+                                    {pinsWithInfo.filter(p => p.x !== null).map(pin => (
+                                        <div key={pin.id} className={`absolute transform -translate-x-1/2 -translate-y-full group cursor-pointer transition-transform duration-200 z-30 ${draggingPinId === pin.id ? 'scale-125 z-50' : ''}`} style={{ left: `${pin.x}%`, top: `${pin.y}%` }} onMouseDown={(e) => { e.stopPropagation(); if(mapMode === 'view') setDraggingPinId(pin.id); }} onClick={(e) => { if(!draggingPinId) { e.stopPropagation(); const listEl = document.getElementById(`pin-item-${pin.id}`); if(listEl) { listEl.scrollIntoView({ behavior: 'smooth', block: 'center' }); listEl.classList.add('bg-yellow-100'); setTimeout(() => listEl.classList.remove('bg-yellow-100'), 1000); } if (mapMode === 'view') setEditingPinId(pin.id); } }}>
+                                            <div className="relative flex flex-col items-center">
+                                                <div className={`px-2 py-0.5 rounded shadow-sm text-[10px] font-bold mb-1 whitespace-nowrap backdrop-blur-sm transition-colors ${editingPinId === pin.id ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white/90 text-slate-700 border border-slate-200'}`}>{pin.displayName}</div>
+                                                <div className={`w-8 h-8 rounded-full border-2 border-white shadow-lg flex items-center justify-center transition-colors ${editingPinId === pin.id ? 'bg-emerald-500' : 'bg-slate-700 hover:bg-slate-600'}`}>
+                                                    {pin.displayName.includes('-') && !pin.displayName.endsWith('-a') && pin.groupId ? <div className="w-2.5 h-2.5 rounded-full bg-slate-300"></div> : pin.annotations.length > 0 ? <div className="w-2.5 h-2.5 rounded-full bg-white"></div> : <div className="w-2 h-2 rounded-full border border-white/50"></div>}
+                                                </div>
+                                                <div className={`w-0 h-0 border-l-[6px] border-r-[6px] border-t-[8px] border-transparent ${editingPinId === pin.id ? 'border-t-emerald-500' : 'border-t-slate-700 hover:border-t-slate-600'}`}></div>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+                        <input type="file" ref={pinInputRef} className="hidden" accept="image/*" onChange={(e) => { const file = e.target.files[0]; if (file) { const reader = new FileReader(); reader.onload = (event) => { const newPin = { id: Date.now(), x: tempClickPos.x, y: tempClickPos.y, imageSrc: event.target.result, originalImageSrc: event.target.result, filters: { brightness: 100, contrast: 100 }, annotations: [], highlightPoly: [], notes: '', groupId: null }; setPins([...pins, newPin]); setMapMode('view'); }; reader.readAsDataURL(file); } }} />
+                        
+                        {mapImage && (
+                            <div className="absolute bottom-6 right-6 flex items-center gap-2 bg-white/90 backdrop-blur shadow-lg px-4 py-2 rounded-full border border-slate-200 z-50">
+                                <button onClick={() => setMapZoom(z => Math.max(0.25, z - 0.25))} className="p-1.5 hover:bg-slate-100 rounded text-slate-600"><ZoomOut size={16}/></button>
+                                <span className="text-xs font-mono text-slate-600 w-12 text-center">{(mapZoom * 100).toFixed(0)}%</span>
+                                <button onClick={() => setMapZoom(z => Math.min(4, z + 0.25))} className="p-1.5 hover:bg-slate-100 rounded text-slate-600"><ZoomIn size={16}/></button>
+                                <button onClick={() => setMapZoom(1)} className="text-xs text-slate-400 hover:text-slate-600 ml-1"><Maximize size={14}/></button>
+                            </div>
+                        )}
+                    </div>
                 </div>
-            </div>
-            <div className="w-64 bg-white border-l shadow-2xl z-30 flex flex-col h-full">
+            )}
+
+            {/* 清单侧边栏 - 根据全屏状态调整宽度 */}
+            <div className={`${isListFullscreen ? 'w-full' : 'w-64'} bg-white border-l shadow-2xl z-30 flex flex-col h-full transition-all duration-300`}>
                 <div className="p-3 border-b bg-slate-50 flex justify-between items-center shrink-0">
-                    <h3 className="font-bold text-slate-700 flex items-center gap-2 text-sm"><List size={16} /> {t('listTitle')}</h3>
-                    <div className="flex gap-2">
+                    <h3 className="font-bold text-slate-700 flex items-center gap-2 text-sm">
+                        <List size={16} /> {t('listTitle')}
+                    </h3>
+                    <div className="flex gap-1 items-center">
+                        <button 
+                            onClick={() => setIsListFullscreen(!isListFullscreen)} 
+                            className={`p-1.5 rounded transition-colors ${isListFullscreen ? 'bg-blue-100 text-blue-600' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}
+                            title={t('listFullscreen')}
+                        >
+                            {isListFullscreen ? <Minimize size={16} /> : <Maximize size={16} />}
+                        </button>
+                        <div className="w-px h-4 bg-slate-300 mx-1"></div>
+                        <button onClick={handleCreateZoneFolder} className="p-1.5 bg-slate-100 text-slate-600 rounded hover:bg-slate-200 transition-colors" title={t('createZoneFolder')}><FolderPlus size={16} /></button>
                         <input type="file" multiple ref={batchInputRef} className="hidden" accept="image/*" onChange={handleBatchUpload} />
                         <button onClick={() => batchInputRef.current.click()} className="p-1.5 bg-emerald-100 text-emerald-700 rounded hover:bg-emerald-200 transition-colors" title={t('batchUpload')}><FilePlus size={16} /></button>
                     </div>
                 </div>
                 <div className="flex-1 overflow-y-auto p-2 space-y-2 custom-scrollbar">
-                    {Object.keys(groupedPins).sort((a, b) => { if (a === 'unlocated') return -1; if (b === 'unlocated') return 1; return a.localeCompare(b); }).map((zoneId) => {
+                    {/* 修复：使用 sort 排序 key，并确保只渲染存在的 key，避免 undefined 错误 */}
+                    {Object.keys(groupedPins).sort((a, b) => {
+                        if (a === 'unlocated') return -1;
+                        if (b === 'unlocated') return 1;
+                        return a.localeCompare(b);
+                    }).map((zoneId) => {
                         const isUnlocated = zoneId === 'unlocated';
                         const zoneObj = zones.find(z => z.id === zoneId);
                         const zoneName = isUnlocated ? t('unlocatedFolder') : (zoneObj ? (zoneObj.name ? `${zoneObj.id}区 - ${zoneObj.name}` : `${zoneObj.id} 区`) : t('zoneUnzoned'));
                         const zoneColor = isUnlocated ? '#f59e0b' : (zoneObj ? ZONE_PALETTE[zoneObj.colorIndex || 0].stroke : '#94a3b8');
                         const items = groupedPins[zoneId];
+                        const hasPoints = zoneObj?.points?.length > 0;
+                        
                         if (!items) return null;
+
                         return (
-                            <div key={zoneId} className={`border rounded-lg overflow-hidden ${isUnlocated ? 'bg-orange-50/50 border-orange-100' : 'bg-white border-slate-200'}`}>
+                            <div 
+                                key={zoneId} 
+                                className={`border rounded-lg overflow-hidden ${isUnlocated ? 'bg-orange-50/50 border-orange-100' : 'bg-white border-slate-200'}`}
+                                onDragOver={(e) => { e.preventDefault(); e.currentTarget.classList.add('ring-2', 'ring-emerald-400'); }}
+                                onDragLeave={(e) => { e.currentTarget.classList.remove('ring-2', 'ring-emerald-400'); }}
+                                onDrop={(e) => { e.preventDefault(); e.currentTarget.classList.remove('ring-2', 'ring-emerald-400'); handleZoneDrop(e, zoneId); }}
+                            >
                                 <div className="flex items-center justify-between p-2 bg-slate-50/80 hover:bg-slate-100 group select-none">
-                                    <div onClick={() => setCollapsedZones(prev => ({ ...prev, [zoneId]: !prev[zoneId] }))} className="flex items-center gap-2 font-medium text-slate-700 flex-1 cursor-pointer">
-                                        {collapsedZones[zoneId] ? <Folder size={16} className="text-slate-400" /> : <FolderOpen size={16} style={{ color: zoneColor }} />}
-                                        <span className={`truncate max-w-[120px] text-sm ${isUnlocated ? 'text-orange-700 font-bold' : ''}`} title={zoneName}>{zoneName}</span>
+                                    <div onClick={() => setCollapsedZones(prev => ({ ...prev, [zoneId]: !prev[zoneId] }))} className="flex items-center gap-2 font-medium text-slate-700 flex-1 cursor-pointer min-w-0">
+                                        {collapsedZones[zoneId] ? <Folder size={16} className="text-slate-400 shrink-0" /> : <FolderOpen size={16} style={{ color: zoneColor }} className="shrink-0" />}
+                                        <div className="flex flex-col min-w-0">
+                                            <span className={`truncate text-sm ${isUnlocated ? 'text-orange-700 font-bold' : ''}`} title={zoneName}>{zoneName}</span>
+                                            {!isUnlocated && !hasPoints && <span className="text-[10px] text-orange-500 flex items-center gap-1">未在地图标定</span>}
+                                        </div>
                                     </div>
-                                    <div className="flex items-center gap-1">
+                                    
+                                    <div className="flex items-center gap-1 shrink-0">
+                                        {/* 如果是未标定的逻辑区域，显示绘制按钮 */}
+                                        {!isUnlocated && !hasPoints && zoneObj && (
+                                            <button 
+                                                onClick={() => startDrawingForZone(zoneId)}
+                                                className="p-1 hover:bg-emerald-100 text-emerald-600 rounded" 
+                                                title={t('drawZoneOnMap')}
+                                            >
+                                                <MapIcon size={14} />
+                                            </button>
+                                        )}
                                         <span className="text-xs text-slate-400 mr-1">{items.length}</span>
                                         {!isUnlocated && zoneObj && <button onClick={() => setEditingZone(zoneObj)} className="p-1 hover:bg-slate-200 rounded text-slate-400 hover:text-emerald-600 transition-colors" title={t('zoneSetting')}><Settings size={14} /></button>}
                                     </div>
                                 </div>
                                 {!collapsedZones[zoneId] && (
-                                    <div className="divide-y divide-slate-100">
+                                    <div className={`divide-y divide-slate-100 ${isListFullscreen ? 'grid grid-cols-2 gap-2 p-2 divide-y-0' : ''}`}>
+                                        {items.length === 0 && <div className="p-4 text-center text-xs text-slate-400 italic col-span-full">{t('dropToZone')}</div>}
                                         {items.map((pin, idx) => {
                                             const canGroupWithPrev = idx > 0 && !isUnlocated;
                                             const isGrouped = !!pin.groupId;
@@ -725,34 +889,67 @@ const MapView = ({
                                                     onDragOver={handleListDragOver} 
                                                     onDrop={(e) => handleListDrop(e, pin.originalIndex)} 
                                                     onClick={() => { 
-                                                        if (isUnlocated) { 
-                                                            startPlacingPin(pin.id); 
-                                                        } else { 
-                                                            setEditingPinId(pin.id); 
-                                                            onEditImage(pin); 
-                                                        } 
+                                                        setEditingPinId(pin.id); 
+                                                        onEditImage(pin); 
                                                     }} 
-                                                    className={`flex justify-between items-center gap-2 p-2 hover:bg-slate-50 transition-colors cursor-pointer group relative ${editingPinId === pin.id ? 'bg-emerald-50/50' : ''} ${isGrouped ? 'pl-6' : ''} ${isUnlocated && placingPinId === pin.id ? 'ring-2 ring-emerald-500 bg-emerald-50' : ''}`}
+                                                    className={`flex gap-3 p-2 hover:bg-slate-50 transition-colors cursor-pointer group relative 
+                                                        ${editingPinId === pin.id ? 'bg-emerald-50/50' : ''} 
+                                                        ${isGrouped ? 'pl-6' : ''} 
+                                                        ${isUnlocated && placingPinId === pin.id ? 'ring-2 ring-emerald-500 bg-emerald-50' : ''}
+                                                        ${isListFullscreen ? 'border border-slate-200 rounded-lg flex-col items-start' : 'items-center'}
+                                                    `}
                                                 >
-                                                    {isGrouped && <div className="absolute left-3 top-[-10px] bottom-1/2 border-l-2 border-b-2 border-slate-200 w-3 rounded-bl-lg"></div>}
-                                                    <div className="flex gap-2 items-center flex-1 min-w-0">
+                                                    {!isListFullscreen && isGrouped && <div className="absolute left-3 top-[-10px] bottom-1/2 border-l-2 border-b-2 border-slate-200 w-3 rounded-bl-lg"></div>}
+                                                    
+                                                    {!isListFullscreen && (
                                                         <div className="flex flex-col items-center justify-center text-slate-300 cursor-move hover:text-slate-500"><GripVertical size={14} /></div>
-                                                        {!isUnlocated && <div className="flex flex-col justify-center">{isGrouped ? <button onClick={(e) => { e.stopPropagation(); toggleGroup(pin.originalIndex, -1); }} className="p-1 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded" title={t('removeFromGroup')}><Unlink size={14} /></button> : <button onClick={(e) => { e.stopPropagation(); if(canGroupWithPrev) toggleGroup(pin.originalIndex, items[idx-1].originalIndex); }} className={`p-1 rounded ${canGroupWithPrev ? 'text-slate-200 hover:text-blue-500 hover:bg-blue-50' : 'text-transparent pointer-events-none'}`} title={t('mergeWithPrev')}><LinkIcon size={14} /></button>}</div>}
-                                                        <div className="w-10 h-10 bg-slate-200 rounded overflow-hidden shrink-0 border border-slate-200 relative">
-                                                            <img src={pin.imageSrc} className="w-full h-full object-cover" alt="" />
-                                                            {pin.annotations.length > 0 && <div className="absolute bottom-0 right-0 w-3 h-3 bg-emerald-500 rounded-tl shadow-sm"></div>}
-                                                        </div>
-                                                        <div className="flex-1 min-w-0 flex flex-col justify-center">
-                                                            <div className="flex justify-between items-center">
-                                                                <span className={`text-xs font-bold ${editingPinId === pin.id ? 'text-emerald-700' : 'text-slate-700'}`}>{isUnlocated ? t('unlocatedLabel') : pin.displayName}</span>
+                                                    )}
+
+                                                    {/* 图片展示区 */}
+                                                    <div className={`bg-slate-200 rounded overflow-hidden shrink-0 border border-slate-200 relative group/img ${isListFullscreen ? 'w-full h-48' : 'w-10 h-10'}`}>
+                                                        <img src={pin.imageSrc} className="w-full h-full object-cover" alt="" />
+                                                        {isUnlocated && (
+                                                            <div 
+                                                                className="absolute inset-0 bg-black/50 flex items-center justify-center opacity-0 group-hover/img:opacity-100 transition-opacity cursor-pointer"
+                                                                onClick={(e) => { e.stopPropagation(); startPlacingPin(pin.id); }}
+                                                                title="放置到地图"
+                                                            >
+                                                                <MapPin size={isListFullscreen ? 32 : 16} className="text-white" />
                                                             </div>
-                                                            <div className="text-[10px] text-slate-400 truncate">{pin.notes || (pin.annotations.length > 0 ? `${pin.annotations.length} marks` : "No notes")}</div>
+                                                        )}
+                                                        {pin.annotations.length > 0 && <div className="absolute bottom-0 right-0 w-3 h-3 bg-emerald-500 rounded-tl shadow-sm"></div>}
+                                                    </div>
+
+                                                    <div className="flex-1 min-w-0 flex flex-col justify-center w-full">
+                                                        <div className="flex justify-between items-center w-full">
+                                                            <span className={`text-xs font-bold ${editingPinId === pin.id ? 'text-emerald-700' : 'text-slate-700'} ${isListFullscreen ? 'text-sm' : ''}`}>
+                                                                {isUnlocated ? t('unlocatedLabel') : pin.displayName}
+                                                            </span>
+                                                            {!isUnlocated && !isListFullscreen && (
+                                                                <button onClick={(e) => { e.stopPropagation(); onEditImage(pin); }} className="opacity-0 group-hover:opacity-100 p-1 hover:bg-slate-200 rounded text-slate-500" title="Edit"><Edit3 size={12} /></button>
+                                                            )}
                                                         </div>
+                                                        
+                                                        {/* 全屏模式下显示更多信息 */}
+                                                        <div className={`text-[10px] text-slate-400 truncate ${isListFullscreen ? 'text-xs whitespace-normal line-clamp-2 h-8' : ''}`}>
+                                                            {pin.notes || (pin.annotations.length > 0 ? `${pin.annotations.length} marks` : "No notes")}
+                                                        </div>
+
+                                                        {isListFullscreen && (
+                                                            <div className="flex gap-2 mt-2 pt-2 border-t border-slate-100 w-full justify-end">
+                                                                <button onClick={(e) => handleDeletePin(e, pin.id)} className="p-1.5 text-red-500 hover:bg-red-50 rounded text-xs flex items-center gap-1"><Trash2 size={12}/> 删除</button>
+                                                                <button onClick={(e) => handleDuplicatePin(e, pin)} className="p-1.5 text-blue-500 hover:bg-blue-50 rounded text-xs flex items-center gap-1"><Copy size={12}/> 复制</button>
+                                                                <button onClick={(e) => { e.stopPropagation(); onEditImage(pin); }} className="p-1.5 bg-emerald-50 text-emerald-600 hover:bg-emerald-100 rounded text-xs flex items-center gap-1"><Edit3 size={12}/> 编辑</button>
+                                                            </div>
+                                                        )}
                                                     </div>
-                                                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10">
-                                                        {!isUnlocated && <button onClick={(e) => { e.stopPropagation(); onEditImage(pin); }} className="p-1 hover:bg-slate-200 rounded text-slate-500" title="Edit"><Edit3 size={12} /></button>}
-                                                        <button onClick={(e) => handleDeletePin(e, pin.id)} className="p-1 hover:bg-red-100 rounded text-slate-400 hover:text-red-500" title={t('deletePin')}><Trash2 size={12} /></button>
-                                                    </div>
+
+                                                    {!isListFullscreen && (
+                                                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                                                            <button onClick={(e) => handleDuplicatePin(e, pin)} className="p-1 hover:bg-blue-100 rounded text-slate-400 hover:text-blue-500" title={t('duplicatePin')}><Copy size={12} /></button>
+                                                            <button onClick={(e) => handleDeletePin(e, pin.id)} className="p-1 hover:bg-red-100 rounded text-slate-400 hover:text-red-500" title={t('deletePin')}><Trash2 size={12} /></button>
+                                                        </div>
+                                                    )}
                                                 </div>
                                             );
                                         })}
@@ -768,7 +965,7 @@ const MapView = ({
 };
 
 // --- 组件：图片编辑器 (重构版：自动保存 & 状态分离) ---
-const ImageEditor = ({ pin, setPins, setActiveTab, t }) => {
+const ImageEditor = ({ pin, setPins, setActiveTab, t, onNavigate, hasPrev, hasNext }) => {
     // 1. Data State (需要持久化的数据)
     const [filters, setFilters] = useState(pin.filters);
     const [highlightPoly, setHighlightPoly] = useState(pin.highlightPoly || []);
@@ -797,6 +994,23 @@ const ImageEditor = ({ pin, setPins, setActiveTab, t }) => {
         setNotes(pin.notes || '');
         setViewState(prev => ({ ...prev, isImageLoaded: false }));
     }, [pin.id]);
+    
+    // 快捷键监听
+    useEffect(() => {
+        const handleKeyDown = (e) => {
+            // 避免在输入框中触发
+            if (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT') return;
+            
+            if (e.key === '[') {
+                if (hasPrev) onNavigate(-1);
+            } else if (e.key === ']') {
+                if (hasNext) onNavigate(1);
+            }
+        };
+
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [hasPrev, hasNext, onNavigate]);
 
     // 自动保存逻辑 (Debounced)
     useEffect(() => {
@@ -815,68 +1029,140 @@ const ImageEditor = ({ pin, setPins, setActiveTab, t }) => {
         return () => clearTimeout(handler);
     }, [paths, highlightPoly, filters, notes]);
 
-    // Canvas 渲染
+    // 计算已使用的维度
+    const usedCategories = useMemo(() => {
+        const cats = new Set(paths.map(p => p.category));
+        return ANALYSIS_CATEGORIES.filter(c => cats.has(c.id));
+    }, [paths]);
+
+    // 2. Image Loading & Auto-fit Logic (Separated)
     useEffect(() => {
-        if (!canvasRef.current) return;
+        const img = new Image();
+        img.src = pin.imageSrc;
+        setViewState(prev => ({ ...prev, isImageLoaded: false }));
+        
+        img.onload = () => {
+            // Auto-fit Logic
+            if (containerRef.current) {
+                const { clientWidth, clientHeight } = containerRef.current;
+                const padding = 40; // Space for comfort
+                const scale = Math.min(
+                    (clientWidth - padding) / img.naturalWidth,
+                    (clientHeight - padding) / img.naturalHeight
+                );
+                // Ensure zoom is reasonable (between 0.1 and 1)
+                // We default to 'fit' (scale), but cap it at 100% (1) if image is smaller than screen
+                const fitZoom = Math.min(Math.max(scale, 0.1), 1); 
+                
+                setViewState(prev => ({ ...prev, isImageLoaded: true, zoom: fitZoom }));
+            }
+        };
+    }, [pin.imageSrc]); // Only runs when image source changes
+
+    // 3. Canvas Drawing Logic (Runs on every change)
+    useEffect(() => {
+        if (!canvasRef.current || !viewState.isImageLoaded) return;
         const canvas = canvasRef.current;
         const ctx = canvas.getContext('2d');
         const img = new Image();
         img.src = pin.imageSrc;
 
-        img.onload = () => {
-            canvas.width = img.naturalWidth;
-            canvas.height = img.naturalHeight;
-            setViewState(prev => ({ ...prev, isImageLoaded: true }));
+        // Note: In a real app, you'd want to cache the image object to avoid reloading
+        // But for local Base64 strings, this is generally fast enough.
+        // The important part is that we DON'T reset zoom here.
+
+        canvas.width = img.naturalWidth;
+        canvas.height = img.naturalHeight;
+        
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        
+        // 绘制背景 (黑白或彩色)
+        const hasHighlight = highlightPoly.length > 0;
+        if (hasHighlight) {
+            // 黑白底图
+            ctx.filter = `grayscale(100%) brightness(${filters.brightness}%) contrast(${filters.contrast}%)`;
+            ctx.drawImage(img, 0, 0);
             
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            
-            // 绘制背景 (黑白或彩色)
-            const hasHighlight = highlightPoly.length > 0;
-            if (hasHighlight) {
-                // 黑白底图
-                ctx.filter = `grayscale(100%) brightness(${filters.brightness}%) contrast(${filters.contrast}%)`;
-                ctx.drawImage(img, 0, 0);
+            // 彩色选区
+            if (highlightPoly.length > 2) {
+                ctx.save();
+                ctx.beginPath();
+                ctx.moveTo(highlightPoly[0].x, highlightPoly[0].y);
+                for(let i=1; i<highlightPoly.length; i++) ctx.lineTo(highlightPoly[i].x, highlightPoly[i].y);
+                ctx.closePath();
+                ctx.clip();
                 
-                // 彩色选区
-                if (highlightPoly.length > 2) {
-                    ctx.save();
-                    ctx.beginPath();
-                    ctx.moveTo(highlightPoly[0].x, highlightPoly[0].y);
-                    for(let i=1; i<highlightPoly.length; i++) ctx.lineTo(highlightPoly[i].x, highlightPoly[i].y);
-                    ctx.closePath();
-                    ctx.clip();
-                    ctx.filter = `brightness(${filters.brightness}%) contrast(${filters.contrast}%)`;
-                    ctx.drawImage(img, 0, 0);
-                    ctx.restore();
-                    // 边框
-                    ctx.beginPath();
-                    ctx.moveTo(highlightPoly[0].x, highlightPoly[0].y);
-                    for(let i=1; i<highlightPoly.length; i++) ctx.lineTo(highlightPoly[i].x, highlightPoly[i].y);
-                    ctx.closePath();
-                    ctx.lineWidth = 2; ctx.strokeStyle = '#fff'; ctx.stroke();
-                    ctx.lineWidth = 1; ctx.strokeStyle = '#333'; ctx.stroke();
-                }
-            } else {
+                // 恢复滤镜为彩色
                 ctx.filter = `brightness(${filters.brightness}%) contrast(${filters.contrast}%)`;
                 ctx.drawImage(img, 0, 0);
-            }
-            ctx.filter = 'none';
+                ctx.restore();
 
-            // 绘制编辑中的选区点线
-            if (viewState.mode === 'highlight' && highlightPoly.length > 0) {
-                 ctx.fillStyle = '#fff'; ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
-                 highlightPoly.forEach(p => { ctx.beginPath(); ctx.arc(p.x, p.y, 4, 0, Math.PI * 2); ctx.fill(); ctx.stroke(); });
-                 if (highlightPoly.length > 1) { ctx.beginPath(); ctx.moveTo(highlightPoly[0].x, highlightPoly[0].y); for(let i=1; i<highlightPoly.length; i++) ctx.lineTo(highlightPoly[i].x, highlightPoly[i].y); ctx.stroke(); }
-            }
-
-            // 绘制标注路径
-            paths.forEach(path => {
-                ctx.beginPath(); ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.lineWidth = path.width; ctx.strokeStyle = path.color;
-                if (path.points.length > 0) { ctx.moveTo(path.points[0].x, path.points[0].y); path.points.forEach(p => ctx.lineTo(p.x, p.y)); }
+                // 绘制选区边框
+                ctx.beginPath();
+                ctx.moveTo(highlightPoly[0].x, highlightPoly[0].y);
+                for(let i=1; i<highlightPoly.length; i++) ctx.lineTo(highlightPoly[i].x, highlightPoly[i].y);
+                ctx.closePath();
+                ctx.lineWidth = 2;
+                ctx.strokeStyle = '#fff';
                 ctx.stroke();
-            });
-        };
-    }, [pin.imageSrc, filters, paths, viewState.mode, highlightPoly]);
+                ctx.lineWidth = 1;
+                ctx.strokeStyle = '#333';
+                ctx.stroke();
+            }
+        } else {
+            ctx.filter = `brightness(${filters.brightness}%) contrast(${filters.contrast}%)`;
+            ctx.drawImage(img, 0, 0);
+        }
+        ctx.filter = 'none';
+
+        // 绘制编辑中的选区点线
+        if (viewState.mode === 'highlight' && highlightPoly.length > 0) {
+                ctx.fillStyle = '#fff'; ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
+                highlightPoly.forEach(p => { ctx.beginPath(); ctx.arc(p.x, p.y, 4, 0, Math.PI * 2); ctx.fill(); ctx.stroke(); });
+                if (highlightPoly.length > 1) { ctx.beginPath(); ctx.moveTo(highlightPoly[0].x, highlightPoly[0].y); for(let i=1; i<highlightPoly.length; i++) ctx.lineTo(highlightPoly[i].x, highlightPoly[i].y); ctx.stroke(); }
+        }
+
+        // 5. 绘制标注路径及标签 (放大版本)
+        paths.forEach(path => {
+            // 绘制路径
+            ctx.beginPath();
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+            ctx.lineWidth = path.width;
+            ctx.strokeStyle = path.color;
+            if (path.points.length > 0) {
+                ctx.moveTo(path.points[0].x, path.points[0].y);
+                path.points.forEach(p => ctx.lineTo(p.x, p.y));
+            }
+            ctx.stroke();
+
+            // 绘制标签代码 (A1, B2 etc.) - 放大版
+            if (path.points.length > 0) {
+                const startP = path.points[0];
+                const catConfig = ANALYSIS_CATEGORIES.find(c => c.id === path.category);
+                const labelColor = catConfig ? catConfig.hex : '#333';
+
+                ctx.save();
+                ctx.font = 'bold 14px Arial'; // 字体放大
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                
+                // 绘制白色背景圆，增加对比度
+                ctx.beginPath();
+                ctx.arc(startP.x, startP.y, 12, 0, Math.PI * 2); // 半径放大
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+                ctx.fill();
+                ctx.lineWidth = 2; // 边框加粗
+                ctx.strokeStyle = labelColor;
+                ctx.stroke();
+
+                // 绘制文字
+                ctx.fillStyle = labelColor;
+                ctx.fillText(path.category, startP.x, startP.y);
+                ctx.restore();
+            }
+        });
+    }, [pin.imageSrc, filters, paths, viewState.mode, highlightPoly, viewState.isImageLoaded]); // Added isImageLoaded dependency
 
     const getCoords = (e) => {
         const rect = canvasRef.current.getBoundingClientRect();
@@ -916,14 +1202,46 @@ const ImageEditor = ({ pin, setPins, setActiveTab, t }) => {
         <div className="flex h-full bg-slate-50 overflow-hidden text-slate-800">
              <div className="w-80 bg-white border-r border-slate-200 flex flex-col h-full z-10 shadow-lg shrink-0 overflow-y-auto">
                  <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-white sticky top-0 z-20">
-                     <h3 className="font-bold text-slate-800 flex items-center gap-2"><Sliders size={18}/> {t('editorTitle')}</h3>
-                     {/* 自动保存状态指示器 */}
-                     <div className="flex items-center gap-1 text-xs font-medium">
-                         {viewState.isSaving ? (
-                             <span className="text-blue-500 flex items-center gap-1"><Cloud size={12} className="animate-pulse"/> {t('statusSaving')}</span>
-                         ) : (
-                             <span className="text-emerald-500 flex items-center gap-1"><Check size={12}/> {t('statusSaved')}</span>
-                         )}
+                     <div className="flex flex-col w-full">
+                         <div className="flex justify-between items-center mb-1">
+                             <h3 className="font-bold text-slate-800 flex items-center gap-2"><Sliders size={18}/> {t('editorTitle')}</h3>
+                             {/* 自动保存状态指示器 */}
+                             <div className="flex items-center gap-1 text-xs font-medium">
+                                 {viewState.isSaving ? (
+                                     <span className="text-blue-500 flex items-center gap-1"><Cloud size={12} className="animate-pulse"/> {t('statusSaving')}</span>
+                                 ) : (
+                                     <span className="text-emerald-500 flex items-center gap-1"><Check size={12}/> {t('statusSaved')}</span>
+                                 )}
+                             </div>
+                         </div>
+                         
+                         {/* 导航栏 (上一张 / 下一张) */}
+                         <div className="flex items-center gap-2 mt-2 bg-slate-100 p-1 rounded-lg">
+                             <button 
+                                 onClick={() => setActiveTab('map')} 
+                                 className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-white rounded transition-colors"
+                                 title={t('backToMap')}
+                             >
+                                 <MapIcon size={16}/>
+                             </button>
+                             <div className="h-4 w-px bg-slate-300 mx-1"></div>
+                             <button 
+                                 onClick={() => hasPrev && onNavigate(-1)} 
+                                 disabled={!hasPrev}
+                                 className={`p-1.5 rounded transition-colors flex-1 flex justify-center ${!hasPrev ? 'text-slate-300 cursor-not-allowed' : 'text-slate-600 hover:bg-white hover:shadow-sm'}`}
+                                 title={t('prevImage')}
+                             >
+                                 <ChevronLeft size={16}/>
+                             </button>
+                             <button 
+                                 onClick={() => hasNext && onNavigate(1)} 
+                                 disabled={!hasNext}
+                                 className={`p-1.5 rounded transition-colors flex-1 flex justify-center ${!hasNext ? 'text-slate-300 cursor-not-allowed' : 'text-slate-600 hover:bg-white hover:shadow-sm'}`}
+                                 title={t('nextImage')}
+                             >
+                                 <ChevronRight size={16}/>
+                             </button>
+                         </div>
                      </div>
                  </div>
                  
@@ -994,9 +1312,6 @@ const ImageEditor = ({ pin, setPins, setActiveTab, t }) => {
                     )}
 
                     <div className="pt-4 border-t border-slate-200 mt-auto">
-                        <button onClick={() => setActiveTab('map')} className="w-full bg-slate-100 hover:bg-slate-200 text-slate-600 py-2.5 rounded-lg flex items-center justify-center gap-2 font-medium transition-colors mb-2">
-                            <MapIcon size={16} /> {t('backToMap')}
-                        </button>
                         <button onClick={() => { if(confirm(t('confirmDeletePin'))) { setPins(prev => prev.filter(p => p.id !== pin.id)); setActiveTab('map'); } }} className="w-full bg-white border border-red-200 text-red-500 hover:bg-red-50 py-2.5 rounded-lg text-sm transition-colors">
                             {t('deletePin')}
                         </button>
@@ -1006,6 +1321,22 @@ const ImageEditor = ({ pin, setPins, setActiveTab, t }) => {
 
              {/* 右侧画布 */}
              <div className="flex-1 bg-slate-100 overflow-hidden flex items-center justify-center p-8 relative">
+                {/* 状态栏 (HUD) - 显示已添加的维度 */}
+                <div className="absolute top-6 left-6 flex flex-wrap gap-2 pointer-events-none z-10 max-w-[80%]">
+                    {usedCategories.length > 0 ? (
+                        usedCategories.map(cat => (
+                             <div key={cat.id} className="bg-white/90 backdrop-blur shadow-sm pl-2 pr-3 py-1.5 rounded-full border border-slate-200 flex items-center gap-2 text-xs font-bold text-slate-700 animate-in fade-in zoom-in duration-300">
+                                <span className="w-3 h-3 rounded-full" style={{backgroundColor: cat.hex}}></span>
+                                {cat.id}
+                             </div>
+                        ))
+                    ) : (
+                        <div className="bg-white/50 backdrop-blur px-3 py-1.5 rounded-full text-xs text-slate-500 italic border border-slate-200/50">
+                            {t('noTags')}
+                        </div>
+                    )}
+                </div>
+
                  <div ref={containerRef} className="overflow-auto w-full h-full flex items-center justify-center custom-scrollbar">
                      {!viewState.isImageLoaded && <div className="absolute inset-0 flex items-center justify-center text-slate-400 gap-2"><div className="w-5 h-5 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin"></div>Loading...</div>}
                      <canvas 
@@ -1091,6 +1422,62 @@ const StatsView = ({ pins, zones, t }) => {
 
     const radarData = useMemo(() => ANALYSIS_CATEGORIES.map(cat => ({ label: t(cat.nameKey), value: stats.catCounts[cat.id] || 0 })), [stats, t]);
 
+    // 新增：导出 LLM 报告逻辑
+    const handleExportLLMReport = () => {
+        const timestamp = new Date().toLocaleString();
+        let report = `# Botanical Signage Analysis Report\nGenerated: ${timestamp}\n\n`;
+        
+        // 1. Overview
+        report += `## 1. System Overview\n`;
+        report += `- Total Zones: ${zones.length}\n`;
+        report += `- Total Pins: ${pins.length}\n`;
+        report += `- Analyzed Elements: ${stats.total}\n\n`;
+
+        // 2. Zone Breakdown
+        report += `## 2. Zone Analysis\n`;
+        Object.keys(zoneDetailStats).forEach(zid => {
+            const z = zoneDetailStats[zid];
+            report += `- Zone ${zid}: ${z.total} elements. Dominant Feature: ${z.topFeature}\n`;
+        });
+        report += `\n`;
+
+        // 3. Detailed Pin Data
+        report += `## 3. Detailed Pin Data\n`;
+        pins.forEach((pin, index) => {
+            const foundZone = zones.find(z => isPointInPolygon({x: pin.x, y: pin.y}, z.points));
+            const zoneId = foundZone ? foundZone.id : (pin.x === null ? 'Unlocated' : 'Unknown');
+            
+            report += `\n[Pin ID: ${pin.id}]\n`;
+            report += `- Location: Zone ${zoneId}\n`;
+            report += `- Group ID: ${pin.groupId || 'None'}\n`;
+            report += `- Notes: "${pin.notes || 'None'}"\n`;
+            report += `- Annotations:\n`;
+            
+            if (pin.annotations.length === 0) {
+                report += `  (No annotations)\n`;
+            } else {
+                const pinCats = {};
+                pin.annotations.forEach(a => {
+                    pinCats[a.category] = (pinCats[a.category] || 0) + 1;
+                });
+                Object.entries(pinCats).forEach(([catId, count]) => {
+                    const catName = ANALYSIS_CATEGORIES.find(c => c.id === catId)?.name || catId;
+                    report += `  - ${catName}: ${count}\n`;
+                });
+            }
+        });
+
+        // Download
+        const blob = new Blob([report], { type: 'text/plain' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `signage-analysis-report-${Date.now()}.txt`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    };
+
     return (
         <div className="h-full bg-slate-50 p-8 overflow-auto">
             <div className="max-w-6xl mx-auto space-y-8">
@@ -1099,10 +1486,16 @@ const StatsView = ({ pins, zones, t }) => {
                         <div className="bg-emerald-100 p-2 rounded-lg"><BarChart2 className="text-emerald-600" size={24}/></div>
                         <h2 className="text-2xl font-bold text-slate-800">{t('statsTitle')}</h2>
                     </div>
-                    <button onClick={() => setIsGroupMode(!isGroupMode)} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors border ${isGroupMode ? 'bg-blue-600 text-white border-blue-600 shadow-lg shadow-blue-200' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}>
-                        <Filter size={16} />
-                        {isGroupMode ? t('statsModeGroup') : t('statsModeCount')}
-                    </button>
+                    <div className="flex gap-2">
+                        <button onClick={handleExportLLMReport} className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-purple-600 text-white hover:bg-purple-700 transition-colors shadow-sm">
+                            <FileText size={16} />
+                            {t('exportLLM')}
+                        </button>
+                        <button onClick={() => setIsGroupMode(!isGroupMode)} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors border ${isGroupMode ? 'bg-blue-600 text-white border-blue-600 shadow-lg shadow-blue-200' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}>
+                            <Filter size={16} />
+                            {isGroupMode ? t('statsModeGroup') : t('statsModeCount')}
+                        </button>
+                    </div>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
                     <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100"><div className="text-slate-400 text-xs font-bold uppercase mb-2">{t('statTotalZones')}</div><div className="text-4xl font-black text-slate-800">{zones.length}</div></div>
@@ -1150,6 +1543,26 @@ const App = () => {
 
   const t = (key) => TRANSLATIONS[lang][key] || key;
   const activePin = useMemo(() => pins.find(p => p.id === editingPinId), [pins, editingPinId]);
+
+  // 新增：导航函数
+  const handleNavigatePin = (direction) => {
+    // 1. 获取当前所有 Pin 的顺序 (与列表一致)
+    // 这里简单使用 pins 数组顺序。如果 MapView 进行了排序，需要保持一致。
+    // 由于 MapView 的 groupedPins 逻辑比较复杂，我们这里简单实现：
+    // 在整个 pins 数组中查找。如果需要严格遵循列表视图的顺序（分区域），需要复用 groupedPins 逻辑。
+    // 为了简单且符合直觉（按添加顺序或当前过滤后的顺序），我们先按 pins 数组索引。
+    // 更佳实践是：App 维护一个 sortedPins 列表，但这会增加复杂度。
+    // 考虑到用户体验，通常按 ID 或添加顺序即可，或者在 MapView 内部处理。
+    
+    // 让我们尝试在 App 中构建一个简单的线性列表，逻辑同 MapView 的 pinsWithInfo
+    const currentIndex = pins.findIndex(p => p.id === editingPinId);
+    if (currentIndex === -1) return;
+    
+    const newIndex = currentIndex + direction;
+    if (newIndex >= 0 && newIndex < pins.length) {
+        setEditingPinId(pins[newIndex].id);
+    }
+  };
 
   const handleSaveProject = () => {
     const projectData = { version: "2.0", timestamp: Date.now(), mapImage, pins, zones };
@@ -1210,7 +1623,19 @@ const App = () => {
       
       <main className="flex-1 overflow-hidden relative">
         {activeTab === 'map' && <MapView mapImage={mapImage} setMapImage={setMapImage} pins={pins} setPins={setPins} zones={zones} setZones={setZones} editingPinId={editingPinId} setEditingPinId={setEditingPinId} setActiveTab={setActiveTab} mapMode={mapMode} setMapMode={setMapMode} currentZonePoints={currentZonePoints} setCurrentZonePoints={setCurrentZonePoints} onEditImage={(pin) => { setEditingPinId(pin.id); setActiveTab('editor'); }} t={t} />}
-        {activeTab === 'editor' && activePin && <ImageEditor key={activePin.id} pin={activePin} setPins={setPins} setActiveTab={setActiveTab} t={t} />}
+        {activeTab === 'editor' && activePin && (
+            <ImageEditor 
+                key={activePin.id} 
+                pin={activePin} 
+                setPins={setPins} 
+                setActiveTab={setActiveTab} 
+                t={t}
+                // 传递导航属性
+                onNavigate={handleNavigatePin}
+                hasPrev={pins.findIndex(p => p.id === activePin.id) > 0}
+                hasNext={pins.findIndex(p => p.id === activePin.id) < pins.length - 1}
+            />
+        )}
         {activeTab === 'stats' && <StatsView pins={pins} zones={zones} t={t} />}
       </main>
     </div>
