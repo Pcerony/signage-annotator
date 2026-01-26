@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
+// import JSZip from 'jszip'; // Removed JSZip dependency for simpler, crash-free JSON export
 import { 
   Map as MapIcon, 
   Upload, 
@@ -7,50 +8,49 @@ import {
   PenTool, 
   BarChart2, 
   Trash2, 
-  Sun,
-  Contrast,
-  Layers,
-  List,
-  MousePointer2,
-  Plus,
-  Folder,
-  FolderOpen,
-  Edit3,
-  CornerUpLeft,
-  X,
-  Settings,
-  Link as LinkIcon,
-  Unlink,
-  GripVertical,
-  Filter,
-  ZoomIn,
-  ZoomOut,
-  Save,
-  RotateCcw,
-  Hexagon,
-  CheckCircle2,
-  ChevronDown,
-  ChevronRight,
-  ChevronLeft, // Added
-  MapPin,
-  FilePlus,
-  Maximize,
+  Sun, 
+  Contrast, 
+  Layers, 
+  List, 
+  MousePointer2, 
+  Plus, 
+  Folder, 
+  FolderOpen, 
+  Edit3, 
+  CornerUpLeft, 
+  X, 
+  Settings, 
+  Link as LinkIcon, 
+  Unlink, 
+  GripVertical, 
+  Filter, 
+  ZoomIn, 
+  ZoomOut, 
+  Save, 
+  RotateCcw, 
+  Hexagon, 
+  CheckCircle2, 
+  ChevronDown, 
+  ChevronRight, 
+  ChevronLeft, 
+  MapPin, 
+  FilePlus, 
+  Maximize, 
   Minimize, 
-  Download,
-  UploadCloud,
-  PieChart,
-  Activity,
-  Globe,
-  Leaf,
-  Cloud,
-  Check,
-  RefreshCw,
-  ImageOff,
-  FolderPlus,
-  Move,
-  Tag,
-  Copy,
-  FileText
+  Download, 
+  UploadCloud, 
+  Activity, 
+  Globe, 
+  Leaf, 
+  Cloud, 
+  Check, 
+  RefreshCw, 
+  ImageOff, 
+  FolderPlus, 
+  Move, 
+  Tag, 
+  Copy, 
+  FileText 
 } from 'lucide-react';
 
 // --- 翻译字典 ---
@@ -61,8 +61,8 @@ const TRANSLATIONS = {
     navMap: "平面图",
     navEditor: "标注详情",
     navStats: "数据看板",
-    loadProject: "读取存档",
-    saveProject: "保存项目",
+    loadProject: "读取存档 (.json)",
+    saveProject: "保存项目 (.json)",
     uploadMap: "上传植物园平面图",
     selectImage: "选择图片文件",
     mapToolbarView: "浏览/移动",
@@ -90,6 +90,7 @@ const TRANSLATIONS = {
     editorTitle: "图片工作台",
     backToMap: "返回",
     zoomLabel: "视图缩放",
+    modeMove: "移动视图 (按住空格)",
     modeHighlight: "突出选区",
     modeDraw: "标注分析",
     highlightTitle: "标识区域选区",
@@ -114,6 +115,7 @@ const TRANSLATIONS = {
     duplicatePin: "复制图片(用于标注另一标识)",
     currentModeHighlight: "突出选区模式",
     currentModeDraw: "标注分析模式",
+    currentModeMove: "移动/拖拽模式",
     statsTitle: "标识系统数据看板",
     statsModeGroup: "统计模式: 按植物实体 (去重)",
     statsModeCount: "统计模式: 按图片累加",
@@ -144,7 +146,7 @@ const TRANSLATIONS = {
     cat_S2: "S2: 文本量控制 (Text Volume Control)",
     cat_S3: "S3: 图文融合 (Visual-Text Integration)",
     msgSaved: "保存成功！",
-    msgLoadSuccess: "项目读取成功！",
+    msgLoadSuccess: "项目读取成功！底图已恢复，请使用右侧列表的“批量修复”功能恢复标识图片。",
     msgLoadErr: "文件格式错误，无法读取。",
     alertZoneExist: "区域 ID 已存在。",
     alertZone3Points: "区域至少需要3个点",
@@ -161,7 +163,17 @@ const TRANSLATIONS = {
     exportLLM: "导出 AI 分析报告 (TXT)",
     exportLLMTitle: "导出自然语言描述数据，供 LLM 分析",
     prevImage: "上一张 ([)",
-    nextImage: "下一张 (])"
+    nextImage: "下一张 (])",
+    savingProject: "正在保存...",
+    missingImage: "图片缺失",
+    relinkImage: "点击重新关联图片",
+    batchRelink: "批量修复图片",
+    batchRelinkTip: "选择包含原图的文件夹或多个文件，系统将根据文件名自动匹配恢复。",
+    relinkSuccess: "成功恢复 {count} 张图片！",
+    originalFile: "原文件名",
+    uploadMapToView: "请先上传底图以查看点位分布",
+    saveTip: "提示：仅保存纯数据。底图和标识图片需在读档后重新加载。",
+    panTip: "按住空格键或鼠标中键拖拽"
   },
   en: {
     appTitle: "Signage Annotator",
@@ -169,8 +181,8 @@ const TRANSLATIONS = {
     navMap: "Map View",
     navEditor: "Editor",
     navStats: "Dashboard",
-    loadProject: "Load Project",
-    saveProject: "Save Project",
+    loadProject: "Load Project (.json)",
+    saveProject: "Save Project (.json)",
     uploadMap: "Upload Garden Map",
     selectImage: "Select Image File",
     mapToolbarView: "Browse / Move",
@@ -198,6 +210,7 @@ const TRANSLATIONS = {
     editorTitle: "Image Workbench",
     backToMap: "Back",
     zoomLabel: "Zoom",
+    modeMove: "Pan/Move",
     modeHighlight: "Highlight",
     modeDraw: "Annotate",
     highlightTitle: "Area Highlight",
@@ -222,6 +235,7 @@ const TRANSLATIONS = {
     duplicatePin: "Duplicate (For 2nd Sign)",
     currentModeHighlight: "Highlight Mode",
     currentModeDraw: "Annotation Mode",
+    currentModeMove: "Pan Mode",
     statsTitle: "Analytics Dashboard",
     statsModeGroup: "Mode: By Plant Entity (Unique)",
     statsModeCount: "Mode: By Image Count (Total)",
@@ -252,7 +266,7 @@ const TRANSLATIONS = {
     cat_S2: "S2: Text Volume Control",
     cat_S3: "S3: Visual-Text Integration",
     msgSaved: "Saved Successfully!",
-    msgLoadSuccess: "Project Loaded Successfully!",
+    msgLoadSuccess: "Metadata loaded! Please upload map and use 'Batch Relink' to restore images.",
     msgLoadErr: "Invalid file format.",
     alertZoneExist: "Zone ID already exists.",
     alertZone3Points: "Zone needs at least 3 points",
@@ -269,11 +283,24 @@ const TRANSLATIONS = {
     exportLLM: "Export AI Report (TXT)",
     exportLLMTitle: "Export natural language data for LLM analysis",
     prevImage: "Previous ([)",
-    nextImage: "Next (])"
+    nextImage: "Next (])",
+    savingProject: "Saving Metadata...",
+    missingImage: "Missing Image",
+    relinkImage: "Click to relink image",
+    batchRelink: "Batch Relink Images",
+    batchRelinkTip: "Select original images to restore display.",
+    relinkSuccess: "Successfully relinked {count} images!",
+    originalFile: "Filename",
+    uploadMapToView: "Please upload map to view pins",
+    saveTip: "Note: Saves data only. Map & Images excluded.",
+    toolHand: "Hand Tool",
+    toolZoomIn: "Zoom In",
+    toolZoomOut: "Zoom Out",
+    toolFit: "Fit Screen"
   }
 };
 
-// --- 常量定义 (使用 Translation Key) ---
+// --- 常量定义 ---
 const ANALYSIS_CATEGORIES = [
   { id: 'A1', groupKey: 'cat_A_group', shortGroup: 'Atmosphere', nameKey: 'cat_A1', color: 'rgba(239, 68, 68, 0.5)', hex: '#ef4444' }, 
   { id: 'A2', groupKey: 'cat_A_group', shortGroup: 'Atmosphere', nameKey: 'cat_A2', color: 'rgba(249, 115, 22, 0.5)', hex: '#f97316' },
@@ -476,6 +503,7 @@ const MapView = ({
     const fileInputRef = useRef(null);
     const pinInputRef = useRef(null);
     const batchInputRef = useRef(null); 
+    const relinkInputRef = useRef(null); 
 
     const pinsWithInfo = useMemo(() => {
         const categorizedPins = pins.map(pin => {
@@ -597,6 +625,7 @@ const MapView = ({
                         id: Date.now() + Math.random(), 
                         x: null, y: null,
                         imageSrc: event.target.result, originalImageSrc: event.target.result,
+                        fileName: file.name, 
                         filters: { brightness: 100, contrast: 100 },
                         annotations: [], highlightPoly: [], notes: '', groupId: null,
                         manualZoneId: null
@@ -607,6 +636,35 @@ const MapView = ({
         })).then(newPins => {
             setPins(prev => [...prev, ...newPins]);
             setCollapsedZones(prev => ({ ...prev, 'unlocated': false }));
+        });
+    };
+
+    // 批量重链图片
+    const handleBatchRelink = (e) => {
+        const files = Array.from(e.target.files);
+        if (files.length === 0) return;
+
+        const fileMap = {};
+        files.forEach(f => fileMap[f.name] = f);
+
+        let restoredCount = 0;
+        const promises = pins.map(pin => {
+            if (!pin.imageSrc && pin.fileName && fileMap[pin.fileName]) {
+                restoredCount++;
+                return new Promise((resolve) => {
+                    const reader = new FileReader();
+                    reader.onload = (ev) => {
+                        resolve({ ...pin, imageSrc: ev.target.result, originalImageSrc: ev.target.result });
+                    };
+                    reader.readAsDataURL(fileMap[pin.fileName]);
+                });
+            }
+            return Promise.resolve(pin);
+        });
+
+        Promise.all(promises).then(finalPins => {
+            setPins(finalPins);
+            alert(t('relinkSuccess').replace('{count}', restoredCount));
         });
     };
 
@@ -694,6 +752,9 @@ const MapView = ({
             setMapImage(null);
         }
     };
+
+    // 检查是否有缺失图片的 Pin
+    const hasMissingImages = useMemo(() => pins.some(p => !p.imageSrc), [pins]);
 
     return (
         <div className="flex h-full bg-slate-50 overflow-hidden" onMouseUp={handleMouseUp} onMouseMove={handleMouseMove} onTouchEnd={handleMouseUp} onTouchMove={handleMouseMove}>
@@ -826,6 +887,24 @@ const MapView = ({
                         <button onClick={() => batchInputRef.current.click()} className="p-1.5 bg-emerald-100 text-emerald-700 rounded hover:bg-emerald-200 transition-colors" title={t('batchUpload')}><FilePlus size={16} /></button>
                     </div>
                 </div>
+
+                {/* 批量修复提示栏 */}
+                {hasMissingImages && (
+                    <div className="bg-amber-50 p-2 border-b border-amber-100 flex flex-col gap-2">
+                         <div className="text-[10px] text-amber-700 flex items-center gap-1">
+                             <ImageIcon size={12} /> 部分图片缺失，请修复
+                         </div>
+                         <input type="file" multiple webkitdirectory="" ref={relinkInputRef} className="hidden" onChange={handleBatchRelink} />
+                         <button 
+                            onClick={() => relinkInputRef.current.click()}
+                            className="w-full py-1.5 bg-amber-100 hover:bg-amber-200 text-amber-800 text-xs rounded font-medium flex items-center justify-center gap-1 transition-colors"
+                            title={t('batchRelinkTip')}
+                         >
+                             <FolderOpen size={14} /> {t('batchRelink')}
+                         </button>
+                    </div>
+                )}
+
                 <div className="flex-1 overflow-y-auto p-2 space-y-2 custom-scrollbar">
                     {/* 修复：使用 sort 排序 key，并确保只渲染存在的 key，避免 undefined 错误 */}
                     {Object.keys(groupedPins).sort((a, b) => {
@@ -905,9 +984,17 @@ const MapView = ({
                                                         <div className="flex flex-col items-center justify-center text-slate-300 cursor-move hover:text-slate-500"><GripVertical size={14} /></div>
                                                     )}
 
-                                                    {/* 图片展示区 */}
+                                                    {/* 图片展示区 (带缺失状态) */}
                                                     <div className={`bg-slate-200 rounded overflow-hidden shrink-0 border border-slate-200 relative group/img ${isListFullscreen ? 'w-full h-48' : 'w-10 h-10'}`}>
-                                                        <img src={pin.imageSrc} className="w-full h-full object-cover" alt="" />
+                                                        {pin.imageSrc ? (
+                                                            <img src={pin.imageSrc} className="w-full h-full object-cover" alt="" />
+                                                        ) : (
+                                                            <div className="w-full h-full flex flex-col items-center justify-center text-slate-400 bg-slate-100">
+                                                                <ImageOff size={isListFullscreen ? 24 : 14} />
+                                                                {isListFullscreen && <span className="text-[10px] mt-1 text-center px-1">{pin.fileName || t('missingImage')}</span>}
+                                                            </div>
+                                                        )}
+                                                        
                                                         {isUnlocated && (
                                                             <div 
                                                                 className="absolute inset-0 bg-black/50 flex items-center justify-center opacity-0 group-hover/img:opacity-100 transition-opacity cursor-pointer"
@@ -930,9 +1017,15 @@ const MapView = ({
                                                             )}
                                                         </div>
                                                         
-                                                        {/* 全屏模式下显示更多信息 */}
                                                         <div className={`text-[10px] text-slate-400 truncate ${isListFullscreen ? 'text-xs whitespace-normal line-clamp-2 h-8' : ''}`}>
-                                                            {pin.notes || (pin.annotations.length > 0 ? `${pin.annotations.length} marks` : "No notes")}
+                                                            {/* 如果图片缺失，显示文件名提示 */}
+                                                            {!pin.imageSrc ? (
+                                                                <span className="text-red-400 flex items-center gap-1">
+                                                                    <ImageOff size={10}/> {pin.fileName || 'Missing'}
+                                                                </span>
+                                                            ) : (
+                                                                pin.notes || (pin.annotations.length > 0 ? `${pin.annotations.length} marks` : "No notes")
+                                                            )}
                                                         </div>
 
                                                         {isListFullscreen && (
@@ -979,12 +1072,16 @@ const ImageEditor = ({ pin, setPins, setActiveTab, t, onNavigate, hasPrev, hasNe
         zoom: 1,
         isImageLoaded: false,
         brushColor: ANALYSIS_CATEGORIES[0],
-        brushSize: 6,
-        isSaving: false // 保存状态指示
+        brushSize: 12, // Increased to 12
+        isSaving: false, // 保存状态指示
+        offset: { x: 0, y: 0 },
+        isPanning: false,
+        lastMousePos: { x: 0, y: 0 }
     });
 
     const canvasRef = useRef(null);
     const containerRef = useRef(null);
+    const restoreInputRef = useRef(null); // 单张恢复 input
 
     // 重置状态当 Pin ID 改变 (切换图片)
     useEffect(() => {
@@ -992,7 +1089,7 @@ const ImageEditor = ({ pin, setPins, setActiveTab, t, onNavigate, hasPrev, hasNe
         setHighlightPoly(pin.highlightPoly || []);
         setPaths(pin.annotations);
         setNotes(pin.notes || '');
-        setViewState(prev => ({ ...prev, isImageLoaded: false }));
+        setViewState(prev => ({ ...prev, isImageLoaded: false, offset: { x: 0, y: 0 } }));
     }, [pin.id]);
     
     // 快捷键监听
@@ -1005,11 +1102,24 @@ const ImageEditor = ({ pin, setPins, setActiveTab, t, onNavigate, hasPrev, hasNe
                 if (hasPrev) onNavigate(-1);
             } else if (e.key === ']') {
                 if (hasNext) onNavigate(1);
+            } else if (e.code === 'Space') {
+                setViewState(prev => ({ ...prev, mode: 'move' }));
+            }
+        };
+        const handleKeyUp = (e) => {
+            // 避免在输入框中触发
+            if (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT') return;
+            if (e.code === 'Space') {
+                setViewState(prev => ({ ...prev, mode: 'draw' })); 
             }
         };
 
         window.addEventListener('keydown', handleKeyDown);
-        return () => window.removeEventListener('keydown', handleKeyDown);
+        window.addEventListener('keyup', handleKeyUp);
+        return () => {
+            window.removeEventListener('keydown', handleKeyDown);
+            window.removeEventListener('keyup', handleKeyUp);
+        };
     }, [hasPrev, hasNext, onNavigate]);
 
     // 自动保存逻辑 (Debounced)
@@ -1037,6 +1147,8 @@ const ImageEditor = ({ pin, setPins, setActiveTab, t, onNavigate, hasPrev, hasNe
 
     // 2. Image Loading & Auto-fit Logic (Separated)
     useEffect(() => {
+        if (!pin.imageSrc) return; // 如果没有图片数据，跳过加载
+
         const img = new Image();
         img.src = pin.imageSrc;
         setViewState(prev => ({ ...prev, isImageLoaded: false }));
@@ -1054,22 +1166,34 @@ const ImageEditor = ({ pin, setPins, setActiveTab, t, onNavigate, hasPrev, hasNe
                 // We default to 'fit' (scale), but cap it at 100% (1) if image is smaller than screen
                 const fitZoom = Math.min(Math.max(scale, 0.1), 1); 
                 
-                setViewState(prev => ({ ...prev, isImageLoaded: true, zoom: fitZoom }));
+                setViewState(prev => ({ ...prev, isImageLoaded: true, zoom: fitZoom, offset: { x: 0, y: 0 } }));
             }
         };
     }, [pin.imageSrc]); // Only runs when image source changes
 
+    // 单张恢复处理
+    const handleRestoreImage = (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (event) => {
+            // 立即更新 pin 数据，这将触发上面的 useEffect 重新加载图片
+            setPins(prev => prev.map(p => p.id === pin.id ? { 
+                ...p, 
+                imageSrc: event.target.result, 
+                originalImageSrc: event.target.result 
+            } : p));
+        };
+        reader.readAsDataURL(file);
+    };
+
     // 3. Canvas Drawing Logic (Runs on every change)
     useEffect(() => {
-        if (!canvasRef.current || !viewState.isImageLoaded) return;
+        if (!canvasRef.current || !viewState.isImageLoaded || !pin.imageSrc) return;
         const canvas = canvasRef.current;
         const ctx = canvas.getContext('2d');
         const img = new Image();
         img.src = pin.imageSrc;
-
-        // Note: In a real app, you'd want to cache the image object to avoid reloading
-        // But for local Base64 strings, this is generally fast enough.
-        // The important part is that we DON'T reset zoom here.
 
         canvas.width = img.naturalWidth;
         canvas.height = img.naturalHeight;
@@ -1127,42 +1251,23 @@ const ImageEditor = ({ pin, setPins, setActiveTab, t, onNavigate, hasPrev, hasNe
             // 绘制路径
             ctx.beginPath();
             ctx.lineCap = 'round';
-            ctx.lineJoin = 'round';
-            ctx.lineWidth = path.width;
+            ctx.lineJoin = 'round'; 
+            ctx.lineWidth = path.width || 12; // Default 12 if undefined
             ctx.strokeStyle = path.color;
-            if (path.points.length > 0) {
-                ctx.moveTo(path.points[0].x, path.points[0].y);
-                path.points.forEach(p => ctx.lineTo(p.x, p.y));
-            }
+            if (path.points.length > 0) { ctx.moveTo(path.points[0].x, path.points[0].y); path.points.forEach(p => ctx.lineTo(p.x, p.y)); }
             ctx.stroke();
 
-            // 绘制标签代码 (A1, B2 etc.) - 放大版
             if (path.points.length > 0) {
                 const startP = path.points[0];
                 const catConfig = ANALYSIS_CATEGORIES.find(c => c.id === path.category);
                 const labelColor = catConfig ? catConfig.hex : '#333';
-
-                ctx.save();
-                ctx.font = 'bold 14px Arial'; // 字体放大
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'middle';
-                
-                // 绘制白色背景圆，增加对比度
-                ctx.beginPath();
-                ctx.arc(startP.x, startP.y, 12, 0, Math.PI * 2); // 半径放大
-                ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
-                ctx.fill();
-                ctx.lineWidth = 2; // 边框加粗
-                ctx.strokeStyle = labelColor;
-                ctx.stroke();
-
-                // 绘制文字
-                ctx.fillStyle = labelColor;
-                ctx.fillText(path.category, startP.x, startP.y);
-                ctx.restore();
+                ctx.save(); ctx.font = 'bold 16px Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                ctx.beginPath(); ctx.arc(startP.x, startP.y, 14, 0, Math.PI * 2); 
+                ctx.fillStyle = 'white'; ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = labelColor; ctx.stroke();
+                ctx.fillStyle = labelColor; ctx.fillText(path.category, startP.x, startP.y); ctx.restore();
             }
         });
-    }, [pin.imageSrc, filters, paths, viewState.mode, highlightPoly, viewState.isImageLoaded]); // Added isImageLoaded dependency
+    }, [pin.imageSrc, filters, paths, viewState.mode, highlightPoly, viewState.isImageLoaded]);
 
     const getCoords = (e) => {
         const rect = canvasRef.current.getBoundingClientRect();
@@ -1191,6 +1296,37 @@ const ImageEditor = ({ pin, setPins, setActiveTab, t, onNavigate, hasPrev, hasNe
     };
     
     const handleEnd = () => setViewState(p => ({ ...p, isDrawing: false }));
+
+    const handleMouseDown = (e) => {
+        if (viewState.mode === 'move' || e.button === 1 || e.button === 2) { 
+            setViewState(prev => ({ ...prev, isPanning: true, lastMousePos: { x: e.clientX, y: e.clientY } }));
+            return;
+        }
+        if (viewState.mode === 'highlight') handleCanvasClick(e);
+        else if (viewState.mode === 'draw') handleStart(e);
+    };
+
+    const handleMouseMove = (e) => {
+        if (viewState.isPanning) {
+            const dx = e.clientX - viewState.lastMousePos.x;
+            const dy = e.clientY - viewState.lastMousePos.y;
+            setViewState(prev => ({
+                ...prev,
+                offset: { x: prev.offset.x + dx, y: prev.offset.y + dy },
+                lastMousePos: { x: e.clientX, y: e.clientY }
+            }));
+            return;
+        }
+        if (viewState.mode === 'draw' && viewState.isDrawing) handleMove(e);
+    };
+
+    const handleMouseUp = (e) => {
+        if (viewState.isPanning) {
+            setViewState(prev => ({ ...prev, isPanning: false }));
+        } else if (viewState.mode === 'draw') {
+            handleEnd(e);
+        }
+    };
 
     const groupedCategories = useMemo(() => {
         const groups = {};
@@ -1250,33 +1386,27 @@ const ImageEditor = ({ pin, setPins, setActiveTab, t, onNavigate, hasPrev, hasNe
                         <div className="flex justify-between items-center text-xs font-bold text-slate-400 uppercase"><span>{t('zoomLabel')}</span><span>{(viewState.zoom * 100).toFixed(0)}%</span></div>
                         <div className="flex gap-2">
                             <button onClick={() => setViewState(p => ({...p, zoom: Math.max(0.1, p.zoom - 0.1)}))} className="p-2 bg-slate-100 rounded hover:bg-slate-200 text-slate-600"><ZoomOut size={16}/></button>
-                            <button onClick={() => setViewState(p => ({...p, zoom: 1}))} className="flex-1 bg-slate-100 rounded hover:bg-slate-200 text-xs font-mono text-slate-600">1:1</button>
+                            <button onClick={() => setViewState(p => ({...p, zoom: 1, offset: {x:0, y:0}}))} className="flex-1 bg-slate-100 rounded hover:bg-slate-200 text-xs font-mono text-slate-600">1:1</button>
                             <button onClick={() => setViewState(p => ({...p, zoom: Math.min(3, p.zoom + 0.1)}))} className="p-2 bg-slate-100 rounded hover:bg-slate-200 text-slate-600"><ZoomIn size={16}/></button>
                         </div>
                     </div>
                     
-                    <div className="bg-slate-100 p-1 rounded-lg flex">
-                        <button onClick={() => setViewState(p => ({...p, mode: 'highlight'}))} className={`flex-1 py-1.5 text-sm rounded-md flex items-center justify-center gap-2 transition-all ${viewState.mode === 'highlight' ? 'bg-white shadow text-blue-600 font-medium' : 'text-slate-500 hover:text-slate-700'}`}><Hexagon size={14} /> {t('modeHighlight')}</button>
-                        <button onClick={() => setViewState(p => ({...p, mode: 'draw'}))} className={`flex-1 py-1.5 text-sm rounded-md flex items-center justify-center gap-2 transition-all ${viewState.mode === 'draw' ? 'bg-white shadow text-emerald-600 font-medium' : 'text-slate-500 hover:text-slate-700'}`}><PenTool size={14} /> {t('modeDraw')}</button>
+                    <div className="bg-slate-100 p-1 rounded-lg flex gap-1">
+                        <button onClick={() => setViewState(p => ({...p, mode: 'move'}))} className={`flex-1 py-1.5 text-xs rounded-md flex flex-col items-center justify-center gap-1 transition-all ${viewState.mode === 'move' ? 'bg-white shadow text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}><Move size={16} /> {t('modeMove')}</button>
+                        <button onClick={() => setViewState(p => ({...p, mode: 'highlight'}))} className={`flex-1 py-1.5 text-xs rounded-md flex flex-col items-center justify-center gap-1 transition-all ${viewState.mode === 'highlight' ? 'bg-white shadow text-blue-600 font-medium' : 'text-slate-500 hover:text-slate-700'}`}><Hexagon size={16} /> {t('modeHighlight')}</button>
+                        <button onClick={() => setViewState(p => ({...p, mode: 'draw'}))} className={`flex-1 py-1.5 text-xs rounded-md flex flex-col items-center justify-center gap-1 transition-all ${viewState.mode === 'draw' ? 'bg-white shadow text-emerald-600 font-medium' : 'text-slate-500 hover:text-slate-700'}`}><PenTool size={16} /> {t('modeDraw')}</button>
                     </div>
 
                     {viewState.mode === 'highlight' && (
                         <div className="bg-blue-50 p-4 rounded-xl border border-blue-100 space-y-3 animate-fade-in">
-                            <div className="flex items-start gap-2">
-                                <Hexagon className="text-blue-500 mt-0.5 shrink-0" size={16} />
-                                <div><h4 className="text-sm font-bold text-blue-700">{t('highlightTitle')}</h4><p className="text-xs text-blue-600/80 mt-1 leading-relaxed">{t('highlightDesc')}</p></div>
-                            </div>
-                            
+                            <div className="flex items-start gap-2"><Hexagon className="text-blue-500 mt-0.5 shrink-0" size={16} /><div><h4 className="text-sm font-bold text-blue-700">{t('highlightTitle')}</h4><p className="text-xs text-blue-600/80 mt-1 leading-relaxed">{t('highlightDesc')}</p></div></div>
                             <div className="space-y-4 p-3 bg-white/50 rounded-lg border border-blue-200">
                                 <h4 className="text-xs font-bold text-blue-400 uppercase">{t('imageParams')}</h4>
                                 <div><div className="flex justify-between text-xs text-blue-600 mb-1"><span>{t('brightness')}</span><span>{filters.brightness}%</span></div><input type="range" min="50" max="150" value={filters.brightness} onChange={(e) => setFilters(p => ({...p, brightness: parseInt(e.target.value)}))} className="w-full h-1 bg-blue-200 rounded-lg appearance-none cursor-pointer accent-blue-500"/></div>
                                 <div><div className="flex justify-between text-xs text-blue-600 mb-1"><span>{t('contrast')}</span><span>{filters.contrast}%</span></div><input type="range" min="50" max="150" value={filters.contrast} onChange={(e) => setFilters(p => ({...p, contrast: parseInt(e.target.value)}))} className="w-full h-1 bg-blue-200 rounded-lg appearance-none cursor-pointer accent-blue-500"/></div>
                             </div>
-
                             <div className="flex items-center justify-between text-xs text-blue-800 bg-white/50 p-2 rounded"><span>{t('pointsCount')}: <strong>{highlightPoly.length}</strong></span>{highlightPoly.length < 3 && <span className="text-orange-500">{t('minPoints')}</span>}</div>
-                            <div className="grid grid-cols-1">
-                                <button onClick={() => setHighlightPoly([])} className="px-3 py-2 bg-white border border-blue-200 text-blue-600 text-xs rounded hover:bg-blue-50 transition-colors">{t('resetSelection')}</button>
-                            </div>
+                            <div className="grid grid-cols-1"><button onClick={() => setHighlightPoly([])} className="px-3 py-2 bg-white border border-blue-200 text-blue-600 text-xs rounded hover:bg-blue-50 transition-colors">{t('resetSelection')}</button></div>
                         </div>
                     )}
 
@@ -1312,6 +1442,9 @@ const ImageEditor = ({ pin, setPins, setActiveTab, t, onNavigate, hasPrev, hasNe
                     )}
 
                     <div className="pt-4 border-t border-slate-200 mt-auto">
+                        <button onClick={() => setActiveTab('map')} className="w-full bg-slate-100 hover:bg-slate-200 text-slate-600 py-2.5 rounded-lg flex items-center justify-center gap-2 font-medium transition-colors mb-2">
+                            <MapIcon size={16} /> {t('backToMap')}
+                        </button>
                         <button onClick={() => { if(confirm(t('confirmDeletePin'))) { setPins(prev => prev.filter(p => p.id !== pin.id)); setActiveTab('map'); } }} className="w-full bg-white border border-red-200 text-red-500 hover:bg-red-50 py-2.5 rounded-lg text-sm transition-colors">
                             {t('deletePin')}
                         </button>
@@ -1337,28 +1470,37 @@ const ImageEditor = ({ pin, setPins, setActiveTab, t, onNavigate, hasPrev, hasNe
                     )}
                 </div>
 
-                 <div ref={containerRef} className="overflow-auto w-full h-full flex items-center justify-center custom-scrollbar">
-                     {!viewState.isImageLoaded && <div className="absolute inset-0 flex items-center justify-center text-slate-400 gap-2"><div className="w-5 h-5 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin"></div>Loading...</div>}
-                     <canvas 
-                        ref={canvasRef} 
-                        onClick={handleCanvasClick}
-                        onMouseDown={handleStart} onMouseMove={handleMove} onMouseUp={handleEnd} onMouseLeave={handleEnd}
-                        onTouchStart={handleStart} onTouchMove={handleMove} onTouchEnd={handleEnd}
-                        className={`block shadow-xl bg-white transition-transform duration-200 ease-out origin-center ${viewState.mode === 'draw' ? 'cursor-crosshair' : 'cursor-crosshair'}`}
-                        style={{ transform: `scale(${viewState.zoom})` }}
-                    />
+                 <div ref={containerRef} className="overflow-hidden w-full h-full flex items-center justify-center bg-slate-200 relative">
+                     {/* 缺失图片时的 UI */}
+                     {!pin.imageSrc && (
+                         <div className="flex flex-col items-center justify-center text-slate-400 gap-4">
+                             <ImageOff size={48} className="text-slate-300" />
+                             <div className="text-center"><p className="font-medium text-slate-600">{t('missingImage')}</p><p className="text-xs text-slate-400 mt-1">{t('originalFile')}: {pin.fileName}</p></div>
+                             <input type="file" ref={restoreInputRef} className="hidden" accept="image/*" onChange={handleRestoreImage} />
+                             <button onClick={() => restoreInputRef.current.click()} className="px-4 py-2 bg-blue-50 text-blue-600 hover:bg-blue-100 rounded-lg text-sm font-medium transition-colors">{t('relinkImage')}</button>
+                         </div>
+                     )}
+
+                     {pin.imageSrc && !viewState.isImageLoaded && <div className="absolute inset-0 flex items-center justify-center text-slate-400 gap-2"><div className="w-5 h-5 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin"></div>Loading...</div>}
+                     
+                     {pin.imageSrc && (
+                         <canvas 
+                            ref={canvasRef} 
+                            onMouseDown={handleMouseDown} 
+                            onMouseMove={handleMouseMove} 
+                            onMouseUp={handleMouseUp} 
+                            onMouseLeave={handleMouseUp}
+                            onClick={handleCanvasClick} // Now safely defined
+                            className={`block shadow-2xl transition-transform duration-75 ease-out origin-center ${viewState.mode === 'move' || viewState.isPanning ? 'cursor-grab active:cursor-grabbing' : 'cursor-crosshair'}`}
+                            style={{ 
+                                transform: `translate(${viewState.offset.x}px, ${viewState.offset.y}px) scale(${viewState.zoom})`,
+                                touchAction: 'none'
+                            }}
+                        />
+                     )}
                  </div>
-                 <div className="absolute bottom-6 left-1/2 transform -translate-x-1/2 flex items-center gap-4 bg-white/90 backdrop-blur shadow-lg px-4 py-2 rounded-full border border-slate-200">
-                     <div className="flex items-center gap-2 border-r border-slate-200 pr-4">
-                        <button onClick={() => setViewState(p => ({...p, zoom: Math.max(0.1, p.zoom - 0.1)}))} className="p-1.5 hover:bg-slate-100 rounded text-slate-600"><ZoomOut size={16}/></button>
-                        <span className="text-xs font-mono text-slate-600 w-12 text-center">{(viewState.zoom * 100).toFixed(0)}%</span>
-                        <button onClick={() => setViewState(p => ({...p, zoom: Math.min(3, p.zoom + 0.1)}))} className="p-1.5 hover:bg-slate-100 rounded text-slate-600"><ZoomIn size={16}/></button>
-                        <button onClick={() => setViewState(p => ({...p, zoom: 1}))} className="text-xs text-slate-400 hover:text-slate-600 ml-1"><Maximize size={14}/></button>
-                     </div>
-                     <div className="flex items-center gap-2 text-xs font-medium text-slate-600">
-                        <span className={`w-2 h-2 rounded-full ${viewState.mode === 'highlight' ? 'bg-blue-500' : 'bg-emerald-500'}`}></span>
-                        {viewState.mode === 'highlight' ? t('currentModeHighlight') : t('currentModeDraw')}
-                     </div>
+                 <div className="absolute bottom-6 left-1/2 transform -translate-x-1/2 flex items-center gap-4 bg-white/90 backdrop-blur shadow-lg px-4 py-2 rounded-full border border-slate-200 pointer-events-none">
+                     <span className="text-xs text-slate-400">{t('panTip')}</span>
                  </div>
              </div>
         </div>
@@ -1565,19 +1707,25 @@ const App = () => {
   };
 
   const handleSaveProject = () => {
-    const projectData = { version: "2.0", timestamp: Date.now(), mapImage, pins, zones };
-    const blob = new Blob([JSON.stringify(projectData)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a'); link.href = url; link.download = `plant-signage-project-${new Date().toISOString().slice(0,10)}.json`;
-    document.body.appendChild(link); link.click(); document.body.removeChild(link);
+    // If JSZip is available (production), implement zip logic here
+    // For simplicity in this single-file context without npm, we stick to JSON fallback
+    // Or prompt user to npm install jszip as discussed before.
+    // Given the constraints, the JSON fallback is safer here unless user confirmed installation.
+    const projectData = { version: "2.0", timestamp: Date.now(), mapImage, pins: pins.map(p => ({...p, imageSrc: null, originalImageSrc: null})), zones };
+      const blob = new Blob([JSON.stringify(projectData)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a'); link.href = url; link.download = `plant-signage-project-${new Date().toISOString().slice(0,10)}.json`;
+      document.body.appendChild(link); link.click(); document.body.removeChild(link);
   };
+
   const handleLoadProject = (e) => {
     const file = e.target.files[0]; if (!file) return;
     const reader = new FileReader();
     reader.onload = (event) => {
       try {
         const data = JSON.parse(event.target.result);
-        if (data.mapImage) setMapImage(data.mapImage); if (data.pins) setPins(data.pins); if (data.zones) setZones(data.zones);
+        if (data.mapImage) setMapImage(data.mapImage); else setMapImage(null); // Reset map if not present
+        if (data.pins) setPins(data.pins); if (data.zones) setZones(data.zones);
         alert(t('msgLoadSuccess'));
       } catch (err) { alert(t('msgLoadErr')); }
     };
