@@ -50,7 +50,16 @@ import {
   Tag, 
   Copy, 
   FileText,
-  Info
+  Info,
+  LayoutDashboard,
+  Map as MapIconReg,
+  PieChart,
+  Grid,
+  Zap,
+  Thermometer,
+  AlignLeft,
+  CheckSquare,
+  AlertCircle
 } from 'lucide-react';
 
 // --- 翻译字典 ---
@@ -119,6 +128,8 @@ const TRANSLATIONS = {
     statsTitle: "标识系统数据看板",
     statsModeGroup: "统计模式: 按植物实体 (去重)",
     statsModeCount: "统计模式: 按图片累加",
+    statsViewCharts: "统计图表",
+    statsViewMap: "空间特征分布",
     statTotalZones: "区域总数",
     statTotalPins: "标识点位总数",
     statTotalElements: "已分析元素",
@@ -131,6 +142,12 @@ const TRANSLATIONS = {
     chartStackTitle: "区域横向对比 (Zone Comparison)",
     chartZoneFeatures: "区域特征速览",
     chartDetailTitle: "细分指标分析 (Detailed Breakdown)",
+    chartHeatmapTitle: "特征共现热力图 (Co-occurrence Matrix)",
+    chartDensityTitle: "区域信息密度 (Avg. Annotations/Sign)",
+    chartCompositionTitle: "维度构成概览",
+    statHealthTitle: "数据完整性",
+    statHealthAnnotated: "已标注",
+    statHealthNotes: "含备注",
     noData: "暂无数据",
     featureStrong: "强氛围感",
     featureHighRel: "高相关性",
@@ -138,13 +155,13 @@ const TRANSLATIONS = {
     cat_A_group: "A. 氛围营造 (Inspirational Atmosphere)",
     cat_R_group: "R. 受众关联 (Audience Relevance)",
     cat_S_group: "S. 结构清晰 (Structural Clarity)",
-    cat_A1: "A1: 提问与互动 (Inquiry & Interaction)",
-    cat_A2: "A2: 叙事语调 (Narrative Tone)",
-    cat_R1: "R1: 生活经验连接 (Life Exp. Connection)",
-    cat_R2: "R2: 感官引导 (Sensory Guidance)",
-    cat_S1: "S1: 信息层级 (Info Hierarchy)",
-    cat_S2: "S2: 文本量控制 (Text Volume Control)",
-    cat_S3: "S3: 图文融合 (Visual-Text Integration)",
+    cat_A1: "A1: 提问与互动",
+    cat_A2: "A2: 叙事语调",
+    cat_R1: "R1: 生活经验连接",
+    cat_R2: "R2: 感官引导",
+    cat_S1: "S1: 信息层级",
+    cat_S2: "S2: 文本量控制",
+    cat_S3: "S3: 图文融合",
     msgSaved: "保存成功！",
     msgLoadSuccess: "项目读取成功！底图已恢复，请使用右侧列表的“批量修复”功能恢复标识图片。",
     msgLoadErr: "文件格式错误，无法读取。",
@@ -173,7 +190,8 @@ const TRANSLATIONS = {
     originalFile: "原文件名",
     uploadMapToView: "请先上传底图以查看点位分布",
     saveTip: "提示：仅保存纯数据。底图和标识图片需在读档后重新加载。",
-    panTip: "按住空格键或鼠标中键拖拽"
+    panTip: "按住空格键或鼠标中键拖拽",
+    mapLegend: "特征图例"
   },
   en: {
     appTitle: "Signage Annotator",
@@ -239,6 +257,8 @@ const TRANSLATIONS = {
     statsTitle: "Analytics Dashboard",
     statsModeGroup: "Mode: By Plant Entity (Unique)",
     statsModeCount: "Mode: By Image Count (Total)",
+    statsViewCharts: "Charts",
+    statsViewMap: "Spatial Map",
     statTotalZones: "Total Zones",
     statTotalPins: "Total Pins",
     statTotalElements: "Analyzed Elements",
@@ -251,6 +271,12 @@ const TRANSLATIONS = {
     chartStackTitle: "Zone Comparison",
     chartZoneFeatures: "Zone Features",
     chartDetailTitle: "Detailed Breakdown",
+    chartHeatmapTitle: "Co-occurrence Matrix",
+    chartDensityTitle: "Information Density (Avg. Annotations/Sign)",
+    chartCompositionTitle: "Composition Overview",
+    statHealthTitle: "Data Health",
+    statHealthAnnotated: "Annotated",
+    statHealthNotes: "With Notes",
     noData: "No Data",
     featureStrong: "Strong Atmosphere",
     featureHighRel: "High Relevance",
@@ -296,7 +322,8 @@ const TRANSLATIONS = {
     toolHand: "Hand Tool",
     toolZoomIn: "Zoom In",
     toolZoomOut: "Zoom Out",
-    toolFit: "Fit Screen"
+    toolFit: "Fit Screen",
+    mapLegend: "Feature Legend"
   }
 };
 
@@ -425,6 +452,72 @@ const StackedBarChart = ({ zones, data }) => {
                     </div>
                 );
             })}
+        </div>
+    );
+};
+
+// New Chart: Doughnut
+const DoughnutChart = ({ data, total }) => {
+    let cumulativePercent = 0;
+    
+    return (
+        <div className="relative w-40 h-40 flex items-center justify-center">
+            <svg viewBox="0 0 100 100" className="w-full h-full -rotate-90">
+                {data.map((item, i) => {
+                    const percent = total > 0 ? item.value / total : 0;
+                    const dashArray = percent * 314; // 2 * PI * R (50) approx
+                    const dashOffset = -cumulativePercent * 314;
+                    cumulativePercent += percent;
+                    return (
+                        <circle
+                            key={i}
+                            r="25"
+                            cx="50"
+                            cy="50"
+                            fill="transparent"
+                            stroke={item.color}
+                            strokeWidth="20" // Thick ring
+                            strokeDasharray={`${dashArray} ${314 - dashArray}`}
+                            strokeDashoffset={dashOffset}
+                        />
+                    );
+                })}
+            </svg>
+            <div className="absolute flex flex-col items-center">
+                <span className="text-2xl font-bold text-slate-700">{total}</span>
+                <span className="text-[10px] text-slate-400 uppercase">Elements</span>
+            </div>
+        </div>
+    );
+};
+
+// New Chart: Heatmap Grid
+const HeatmapGrid = ({ matrix, labels }) => {
+    const maxVal = Math.max(...matrix.flat()) || 1;
+    return (
+        <div className="flex flex-col">
+            <div className="flex">
+                <div className="w-8"></div>
+                {labels.map(l => <div key={l} className="w-8 text-[10px] text-center text-slate-400 rotate-90 h-10">{l}</div>)}
+            </div>
+            {matrix.map((row, i) => (
+                <div key={i} className="flex items-center">
+                    <div className="w-8 text-[10px] text-right pr-2 text-slate-400">{labels[i]}</div>
+                    {row.map((val, j) => (
+                        <div 
+                            key={j} 
+                            className="w-8 h-8 flex items-center justify-center border border-white text-[9px]"
+                            style={{ 
+                                backgroundColor: `rgba(16, 185, 129, ${val / maxVal})`,
+                                color: val / maxVal > 0.5 ? 'white' : 'transparent'
+                            }}
+                            title={`${labels[i]} & ${labels[j]}: ${val}`}
+                        >
+                            {val > 0 ? val : ''}
+                        </div>
+                    ))}
+                </div>
+            ))}
         </div>
     );
 };
@@ -1536,8 +1629,10 @@ const ImageEditor = ({ pin, setPins, setActiveTab, t, onNavigate, hasPrev, hasNe
 };
 
 // --- 组件：统计分析 ---
-const StatsView = ({ pins, zones, t }) => {
+const StatsView = ({ pins, zones, mapImage, t }) => {
     const [isGroupMode, setIsGroupMode] = useState(false);
+    const [viewMode, setViewMode] = useState('charts'); // 'charts' or 'map'
+
     const stats = useMemo(() => {
         let total = 0; const catCounts = {};
         ANALYSIS_CATEGORIES.forEach(c => catCounts[c.id] = 0);
@@ -1554,6 +1649,52 @@ const StatsView = ({ pins, zones, t }) => {
         }
         return { total, catCounts };
     }, [pins, isGroupMode]);
+
+    // NEW Analytics Calculation
+    const deepAnalytics = useMemo(() => {
+        // 1. Co-occurrence Matrix
+        const catIds = ANALYSIS_CATEGORIES.map(c => c.id);
+        const matrix = Array(catIds.length).fill(0).map(() => Array(catIds.length).fill(0));
+        
+        pins.forEach(pin => {
+            const pinCats = [...new Set(pin.annotations.map(a => a.category))];
+            for (let i = 0; i < pinCats.length; i++) {
+                for (let j = 0; j < pinCats.length; j++) {
+                    const idx1 = catIds.indexOf(pinCats[i]);
+                    const idx2 = catIds.indexOf(pinCats[j]);
+                    if (idx1 !== -1 && idx2 !== -1) {
+                        matrix[idx1][idx2]++;
+                    }
+                }
+            }
+        });
+
+        // 2. Zone Density (Annotations per Pin per Zone)
+        const densityData = zones.map(z => {
+            let pinCount = 0;
+            let annoCount = 0;
+            pins.forEach(pin => {
+                if (isPointInPolygon({x: pin.x, y: pin.y}, z.points)) {
+                    pinCount++;
+                    annoCount += pin.annotations.length;
+                }
+            });
+            return { id: z.id, val: pinCount ? (annoCount / pinCount).toFixed(1) : 0 };
+        });
+
+        // 3. Composition (Doughnut)
+        const compData = [
+            { label: 'A', value: stats.catCounts['A1'] + stats.catCounts['A2'], color: '#ef4444' },
+            { label: 'R', value: stats.catCounts['R1'] + stats.catCounts['R2'], color: '#3b82f6' },
+            { label: 'S', value: stats.catCounts['S1'] + stats.catCounts['S2'] + stats.catCounts['S3'], color: '#22c55e' },
+        ];
+
+        // 4. Data Health
+        const annotatedPins = pins.filter(p => p.annotations.length > 0).length;
+        const notedPins = pins.filter(p => p.notes && p.notes.trim().length > 0).length;
+
+        return { matrix, catIds, densityData, compData, annotatedPins, notedPins };
+    }, [pins, zones, stats]);
 
     const zoneDetailStats = useMemo(() => {
         const zoneData = {};
@@ -1591,6 +1732,78 @@ const StatsView = ({ pins, zones, t }) => {
     }, [stats]);
 
     const radarData = useMemo(() => ANALYSIS_CATEGORIES.map(cat => ({ label: t(cat.nameKey), value: stats.catCounts[cat.id] || 0 })), [stats, t]);
+
+    // Pin with features for map view
+    const pinsWithFeatures = useMemo(() => {
+        return pins.filter(p => p.x !== null).map(pin => {
+            const uniqueCats = [...new Set(pin.annotations.map(a => a.category))];
+            const catColors = uniqueCats.map(cid => {
+                const config = ANALYSIS_CATEGORIES.find(c => c.id === cid);
+                return config ? config.hex : '#ccc';
+            });
+            return { ...pin, featureColors: catColors };
+        });
+    }, [pins]);
+
+    // Force-directed layout for labels to avoid overlap
+    const distributedPins = useMemo(() => {
+        if (viewMode !== 'map' || !mapImage) return [];
+
+        // Initial positions
+        // Use a shallow copy to modify positions
+        let nodes = pinsWithFeatures.map(p => ({
+            ...p,
+            lx: p.x, // label x
+            ly: p.y - 4, // label y (starts slightly above pin)
+            baseX: p.x,
+            baseY: p.y
+        }));
+
+        const iterations = 60; // Enough for simple convergence
+        const canvasRatio = 1; // Assuming mostly square-ish aspect ratio for simplicity in % math
+        // Treat X and Y as percentage units.
+        // A capsule is roughly 4% wide and 3% tall on typical screen
+        const nodeRadius = 3; 
+
+        for (let k = 0; k < iterations; k++) {
+            // Repulsion
+            for (let i = 0; i < nodes.length; i++) {
+                for (let j = i + 1; j < nodes.length; j++) {
+                    const a = nodes[i];
+                    const b = nodes[j];
+                    const dx = a.lx - b.lx;
+                    const dy = (a.ly - b.ly) * canvasRatio;
+                    const distSq = dx * dx + dy * dy;
+                    const minDist = nodeRadius * 2.5; // Minimum distance
+                    
+                    if (distSq < minDist * minDist && distSq > 0.01) {
+                        const dist = Math.sqrt(distSq);
+                        const force = (minDist - dist) / dist * 0.5; // 0.5 is strength factor
+                        const fx = dx * force;
+                        const fy = (dy * force) / canvasRatio;
+                        
+                        a.lx += fx;
+                        a.ly += fy;
+                        b.lx -= fx;
+                        b.ly -= fy;
+                    }
+                }
+            }
+            
+            // Attraction to origin (Spring force)
+            for (let i = 0; i < nodes.length; i++) {
+                const n = nodes[i];
+                const targetY = n.baseY - 4; // Ideally above the pin
+                const dx = n.baseX - n.lx;
+                const dy = targetY - n.ly;
+                
+                n.lx += dx * 0.05;
+                n.ly += dy * 0.05;
+            }
+        }
+
+        return nodes;
+    }, [pinsWithFeatures, viewMode, mapImage]);
 
     // 新增：导出 LLM 报告逻辑
     const handleExportLLMReport = () => {
@@ -1656,6 +1869,23 @@ const StatsView = ({ pins, zones, t }) => {
                         <div className="bg-emerald-100 p-2 rounded-lg"><BarChart2 className="text-emerald-600" size={24}/></div>
                         <h2 className="text-2xl font-bold text-slate-800">{t('statsTitle')}</h2>
                     </div>
+                    <div className="flex gap-2 items-center bg-white p-1 rounded-lg border border-slate-200 shadow-sm">
+                        <button 
+                            onClick={() => setViewMode('charts')} 
+                            className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-all ${viewMode === 'charts' ? 'bg-slate-100 text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                        >
+                            <LayoutDashboard size={16} />
+                            {t('statsViewCharts')}
+                        </button>
+                        <button 
+                            onClick={() => setViewMode('map')} 
+                            className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-all ${viewMode === 'map' ? 'bg-blue-50 text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                        >
+                            <MapIconReg size={16} />
+                            {t('statsViewMap')}
+                        </button>
+                    </div>
+                    
                     <div className="flex gap-2">
                         <button onClick={handleExportLLMReport} className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-purple-600 text-white hover:bg-purple-700 transition-colors shadow-sm">
                             <FileText size={16} />
@@ -1667,33 +1897,191 @@ const StatsView = ({ pins, zones, t }) => {
                         </button>
                     </div>
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                    <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100"><div className="text-slate-400 text-xs font-bold uppercase mb-2">{t('statTotalZones')}</div><div className="text-4xl font-black text-slate-800">{zones.length}</div></div>
-                    <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100"><div className="text-slate-400 text-xs font-bold uppercase mb-2">{t('statTotalPins')}</div><div className="text-4xl font-black text-blue-600">{pins.length}</div></div>
-                    <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100"><div className="text-slate-400 text-xs font-bold uppercase mb-2">{isGroupMode ? t('statTotalEntities') : t('statTotalElements')}</div><div className="text-4xl font-black text-emerald-600">{stats.total}</div></div>
-                    <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100"><div className="text-slate-400 text-xs font-bold uppercase mb-2">{t('statDominant')}</div><div className="text-lg font-bold text-slate-800">{(() => { const totals = { A: 0, R: 0, S: 0 }; ANALYSIS_CATEGORIES.forEach(c => totals[c.shortGroup[0]] += stats.catCounts[c.id]); const max = Math.max(totals.A, totals.R, totals.S); if (max === 0) return '-'; if (max === totals.A) return t('statDominantAtmosphere'); if (max === totals.R) return t('statDominantRelevance'); return t('statDominantClarity'); })()}</div></div>
+
+                {/* NEW: Expanded Top Metrics */}
+                <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+                    <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-100 flex flex-col justify-between">
+                        <div className="flex justify-between items-start"><div className="text-slate-400 text-[10px] font-bold uppercase">{t('statTotalZones')}</div><MapIconReg size={16} className="text-slate-300"/></div>
+                        <div className="text-3xl font-black text-slate-800">{zones.length}</div>
+                    </div>
+                    <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-100 flex flex-col justify-between">
+                        <div className="flex justify-between items-start"><div className="text-slate-400 text-[10px] font-bold uppercase">{t('statTotalPins')}</div><MapPin size={16} className="text-blue-300"/></div>
+                        <div className="text-3xl font-black text-blue-600">{pins.length}</div>
+                    </div>
+                    <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-100 flex flex-col justify-between">
+                        <div className="flex justify-between items-start"><div className="text-slate-400 text-[10px] font-bold uppercase">{isGroupMode ? t('statTotalEntities') : t('statTotalElements')}</div><Tag size={16} className="text-emerald-300"/></div>
+                        <div className="text-3xl font-black text-emerald-600">{stats.total}</div>
+                    </div>
+                    {/* Health Check Metrics */}
+                    <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-100 flex flex-col justify-between">
+                        <div className="flex justify-between items-start"><div className="text-slate-400 text-[10px] font-bold uppercase">{t('statHealthTitle')}</div><Activity size={16} className="text-orange-300"/></div>
+                        <div className="flex gap-4 items-end">
+                            <div><div className="text-lg font-bold text-slate-700">{Math.round((deepAnalytics.annotatedPins / (pins.length || 1)) * 100)}%</div><div className="text-[9px] text-slate-400">{t('statHealthAnnotated')}</div></div>
+                            <div><div className="text-lg font-bold text-slate-700">{Math.round((deepAnalytics.notedPins / (pins.length || 1)) * 100)}%</div><div className="text-[9px] text-slate-400">{t('statHealthNotes')}</div></div>
+                        </div>
+                    </div>
+                    <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-100 flex flex-col justify-between">
+                        <div className="flex justify-between items-start"><div className="text-slate-400 text-[10px] font-bold uppercase">{t('statDominant')}</div><Zap size={16} className="text-purple-300"/></div>
+                        <div className="text-lg font-bold text-slate-800 leading-tight mt-1">{(() => { const totals = { A: 0, R: 0, S: 0 }; ANALYSIS_CATEGORIES.forEach(c => totals[c.shortGroup[0]] += stats.catCounts[c.id]); const max = Math.max(totals.A, totals.R, totals.S); if (max === 0) return '-'; if (max === totals.A) return t('statDominantAtmosphere'); if (max === totals.R) return t('statDominantRelevance'); return t('statDominantClarity'); })()}</div>
+                    </div>
                 </div>
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                    <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 flex flex-col"><h3 className="font-bold text-slate-700 mb-6 flex items-center gap-2"><Activity size={18}/> {t('chartRadarTitle')}</h3><div className="flex-1 flex items-center justify-center min-h-[300px]">{stats.total > 0 ? <RadarChart data={radarData} /> : <div className="text-slate-300">{t('noData')}</div>}</div></div>
-                    <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 flex flex-col"><h3 className="font-bold text-slate-700 mb-6 flex items-center gap-2"><BarChart2 size={18}/> {t('chartStackTitle')}</h3><div className="flex-1 overflow-auto custom-scrollbar"><StackedBarChart zones={zones} data={zoneDetailStats} /></div></div>
-                </div>
-                {zones.length > 0 && (
-                    <div>
-                        <h3 className="font-bold text-slate-700 mb-4 flex items-center gap-2"><MapIcon size={18}/> {t('chartZoneFeatures')}</h3>
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">{zones.map(z => (<div key={z.id} className="bg-white p-4 rounded-lg border border-slate-100 shadow-sm"><div className="flex justify-between items-center mb-2"><span className="font-bold text-slate-700">{z.id}</span><span className="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">n={zoneDetailStats[z.id]?.total || 0}</span></div><div className="text-xs text-slate-500"><div className="font-medium text-emerald-600">{zoneDetailStats[z.id]?.topFeature}</div></div></div>))}</div>
+
+                {viewMode === 'charts' ? (
+                    <>
+                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                            {/* 1. Radar Chart (Existing) */}
+                            <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 flex flex-col"><h3 className="font-bold text-slate-700 mb-6 flex items-center gap-2 text-sm"><Hexagon size={16}/> {t('chartRadarTitle')}</h3><div className="flex-1 flex items-center justify-center min-h-[250px]">{stats.total > 0 ? <RadarChart data={radarData} /> : <div className="text-slate-300">{t('noData')}</div>}</div></div>
+                            
+                            {/* 2. Composition Doughnut (New) */}
+                            <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 flex flex-col items-center justify-center">
+                                <h3 className="font-bold text-slate-700 mb-6 flex items-center gap-2 text-sm w-full"><PieChart size={16}/> {t('chartCompositionTitle')}</h3>
+                                <DoughnutChart data={deepAnalytics.compData} total={stats.total} />
+                                <div className="flex gap-4 mt-6">
+                                    <div className="flex items-center gap-1 text-xs font-bold text-slate-600"><span className="w-2 h-2 rounded-full bg-red-500"></span> A</div>
+                                    <div className="flex items-center gap-1 text-xs font-bold text-slate-600"><span className="w-2 h-2 rounded-full bg-blue-500"></span> R</div>
+                                    <div className="flex items-center gap-1 text-xs font-bold text-slate-600"><span className="w-2 h-2 rounded-full bg-green-500"></span> S</div>
+                                </div>
+                            </div>
+
+                            {/* 3. Heatmap (New) */}
+                            <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 flex flex-col">
+                                <h3 className="font-bold text-slate-700 mb-4 flex items-center gap-2 text-sm"><Grid size={16}/> {t('chartHeatmapTitle')}</h3>
+                                <div className="flex-1 flex items-center justify-center overflow-auto">
+                                    <HeatmapGrid matrix={deepAnalytics.matrix} labels={deepAnalytics.catIds} />
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                            {/* 4. Stacked Bar (Existing) */}
+                            <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 flex flex-col"><h3 className="font-bold text-slate-700 mb-6 flex items-center gap-2 text-sm"><AlignLeft size={16}/> {t('chartStackTitle')}</h3><div className="flex-1 overflow-auto custom-scrollbar"><StackedBarChart zones={zones} data={zoneDetailStats} /></div></div>
+                            
+                            {/* 5. Information Density (New) */}
+                            <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 flex flex-col">
+                                <h3 className="font-bold text-slate-700 mb-6 flex items-center gap-2 text-sm"><Thermometer size={16}/> {t('chartDensityTitle')}</h3>
+                                <div className="flex-1 overflow-auto custom-scrollbar space-y-2">
+                                    {deepAnalytics.densityData.map((d, i) => (
+                                        <div key={i} className="flex items-center gap-3">
+                                            <span className="w-12 text-xs font-bold text-right text-slate-500">{d.id}</span>
+                                            <div className="flex-1 bg-slate-50 rounded-md h-6 overflow-hidden relative">
+                                                <div className="h-full bg-purple-500/50" style={{ width: `${Math.min(100, (d.val / 5) * 100)}%` }}></div> {/* Assuming 5 is a high density cap */}
+                                                <span className="absolute inset-0 flex items-center px-2 text-[10px] font-bold text-slate-700">{d.val}</span>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+
+                        {zones.length > 0 && (
+                            <div>
+                                <h3 className="font-bold text-slate-700 mb-4 flex items-center gap-2 text-sm"><MapIcon size={16}/> {t('chartZoneFeatures')}</h3>
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">{zones.map(z => (<div key={z.id} className="bg-white p-4 rounded-lg border border-slate-100 shadow-sm"><div className="flex justify-between items-center mb-2"><span className="font-bold text-slate-700">{z.id}</span><span className="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">n={zoneDetailStats[z.id]?.total || 0}</span></div><div className="text-xs text-slate-500"><div className="font-medium text-emerald-600">{zoneDetailStats[z.id]?.topFeature}</div></div></div>))}</div>
+                            </div>
+                        )}
+                        <div className="bg-white p-8 rounded-xl shadow-sm border border-slate-100">
+                            <h3 className="font-bold text-slate-700 mb-6 flex justify-between items-center text-sm"><span className="flex items-center gap-2"><CheckSquare size={16}/> {t('chartDetailTitle')}</span></h3>
+                            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                                {groupedStats.map(group => (
+                                    <div key={group.nameKey} className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 flex flex-col h-full">
+                                        <div className="pb-4 mb-4 border-b border-slate-50 flex justify-between items-end"><h4 className="font-bold text-sm text-slate-700 w-3/4">{t(group.nameKey)}</h4><span className="text-2xl font-black text-slate-800">{group.total}</span></div>
+                                        <div className="space-y-4 flex-1">{group.items.map(item => (<div key={item.id}><div className="flex justify-between text-xs mb-1.5"><span className="text-slate-600 font-medium truncate pr-2" title={t(item.nameKey)}>{t(item.nameKey).split(': ')[1]}</span><span className="text-slate-400">{item.count} ({item.pct}%)</span></div><div className="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden"><div className="h-full rounded-full transition-all duration-1000" style={{ width: `${item.pct}%`, backgroundColor: item.hex }}></div></div></div>))}</div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    </>
+                ) : (
+                    // ------------------ NEW MAP VISUALIZATION (With Force Layout) ------------------
+                    <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 flex flex-col h-[700px]">
+                        <div className="flex justify-between items-center mb-4">
+                            <h3 className="font-bold text-slate-700 flex items-center gap-2"><MapIconReg size={18}/> {t('statsViewMap')}</h3>
+                            <div className="flex gap-2">
+                                <div className="text-xs flex items-center gap-2 bg-slate-50 px-3 py-1 rounded border border-slate-200">
+                                    <span className="font-bold text-slate-500">{t('mapLegend')}:</span>
+                                    <div className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-500"></span><span className="text-slate-600">A (Atmosphere)</span></div>
+                                    <div className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-blue-500"></span><span className="text-slate-600">R (Relevance)</span></div>
+                                    <div className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500"></span><span className="text-slate-600">S (Clarity)</span></div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div className="flex-1 bg-slate-50 rounded-lg border border-slate-200 overflow-auto relative custom-scrollbar">
+                            {mapImage ? (
+                                <div className="relative inline-block w-full" style={{minWidth: '800px'}}>
+                                    <img src={mapImage} className="w-full h-auto block opacity-80" alt="Map Base" />
+                                    {/* Overlay Zones */}
+                                    <svg className="absolute top-0 left-0 w-full h-full pointer-events-none opacity-30" viewBox="0 0 100 100" preserveAspectRatio="none">
+                                        {zones.map((zone) => {
+                                            const style = ZONE_PALETTE[zone.colorIndex || 0];
+                                            return <polygon key={zone.id} points={zone.points.map(p => `${p.x},${p.y}`).join(' ')} fill={style.fill} stroke={style.stroke} strokeWidth="0.2" />;
+                                        })}
+                                    </svg>
+                                    
+                                    {/* Overlay Connector Lines (Leader Lines) */}
+                                    <svg className="absolute top-0 left-0 w-full h-full pointer-events-none" viewBox="0 0 100 100" preserveAspectRatio="none">
+                                        {distributedPins.map(pin => {
+                                            // Only draw line if the label has moved significantly from the base
+                                            const moved = Math.abs(pin.lx - pin.baseX) > 0.5 || Math.abs(pin.ly - (pin.baseY - 4)) > 0.5;
+                                            if (!moved) return null;
+                                            return (
+                                                <line 
+                                                    key={`line-${pin.id}`}
+                                                    x1={pin.baseX} 
+                                                    y1={pin.baseY} 
+                                                    x2={pin.lx} 
+                                                    y2={pin.ly} 
+                                                    stroke="#64748b" 
+                                                    strokeWidth="0.15" 
+                                                    opacity="0.6"
+                                                />
+                                            );
+                                        })}
+                                    </svg>
+
+                                    {/* Overlay Pins and Labels */}
+                                    {distributedPins.map(pin => (
+                                        <div key={pin.id}>
+                                            {/* Original Pin Location (The Dot) */}
+                                            <div 
+                                                className="absolute transform -translate-x-1/2 -translate-y-1/2 w-2 h-2 bg-slate-800 rounded-full border border-white shadow-sm z-10 pointer-events-none"
+                                                style={{ left: `${pin.baseX}%`, top: `${pin.baseY}%` }}
+                                            />
+
+                                            {/* The Floating Feature Capsule */}
+                                            <div 
+                                                className="absolute transform -translate-x-1/2 -translate-y-1/2 hover:z-50 transition-all duration-300 ease-out group"
+                                                style={{ left: `${pin.lx}%`, top: `${pin.ly}%` }}
+                                            >
+                                                <div className="flex flex-col items-center">
+                                                    {/* Feature Capsule */}
+                                                    <div className="bg-white rounded-full shadow-md border border-slate-200 p-0.5 flex gap-0.5 items-center justify-center min-w-[20px] h-5 px-1 hover:scale-110 transition-transform cursor-default">
+                                                        {pin.featureColors.length > 0 ? (
+                                                            pin.featureColors.map((color, idx) => (
+                                                                <div key={idx} className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: color }} />
+                                                            ))
+                                                        ) : (
+                                                            <div className="w-1.5 h-1.5 rounded-full bg-slate-300" />
+                                                        )}
+                                                    </div>
+                                                    
+                                                    {/* Tooltip on Hover */}
+                                                    <div className="absolute top-full mt-1 bg-slate-800 text-white text-[10px] px-2 py-1 rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-50 shadow-lg">
+                                                        {pin.displayName || 'Pin'}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            ) : (
+                                <div className="flex items-center justify-center h-full text-slate-400 italic">
+                                    {t('uploadMapToView')}
+                                </div>
+                            )}
+                        </div>
                     </div>
                 )}
-                <div className="bg-white p-8 rounded-xl shadow-sm border border-slate-100">
-                    <h3 className="font-bold text-slate-700 mb-6 flex justify-between items-center">{t('chartDetailTitle')}</h3>
-                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                        {groupedStats.map(group => (
-                            <div key={group.nameKey} className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 flex flex-col h-full">
-                                <div className="pb-4 mb-4 border-b border-slate-50 flex justify-between items-end"><h4 className="font-bold text-sm text-slate-700 w-3/4">{t(group.nameKey)}</h4><span className="text-2xl font-black text-slate-800">{group.total}</span></div>
-                                <div className="space-y-4 flex-1">{group.items.map(item => (<div key={item.id}><div className="flex justify-between text-xs mb-1.5"><span className="text-slate-600 font-medium truncate pr-2" title={t(item.nameKey)}>{t(item.nameKey).split(': ')[1]}</span><span className="text-slate-400">{item.count} ({item.pct}%)</span></div><div className="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden"><div className="h-full rounded-full transition-all duration-1000" style={{ width: `${item.pct}%`, backgroundColor: item.hex }}></div></div></div>))}</div>
-                            </div>
-                        ))}
-                    </div>
-                </div>
             </div>
         </div>
     );
@@ -1819,7 +2207,7 @@ const App = () => {
                 hasNext={pins.findIndex(p => p.id === activePin.id) < pins.length - 1}
             />
         )}
-        {activeTab === 'stats' && <StatsView pins={pins} zones={zones} t={t} />}
+        {activeTab === 'stats' && <StatsView pins={pins} zones={zones} mapImage={mapImage} t={t} />}
       </main>
     </div>
   );
