@@ -1,5 +1,4 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-// import JSZip from 'jszip'; // Removed JSZip dependency for simpler, crash-free JSON export
 import { 
   Map as MapIcon, 
   Upload, 
@@ -50,7 +49,8 @@ import {
   Move, 
   Tag, 
   Copy, 
-  FileText 
+  FileText,
+  Info
 } from 'lucide-react';
 
 // --- 翻译字典 ---
@@ -429,6 +429,20 @@ const StackedBarChart = ({ zones, data }) => {
     );
 };
 
+// --- Toast Component (Replaces Alert) ---
+const Toast = ({ message, type = 'info', onClose }) => (
+    <div className={`fixed top-4 left-1/2 -translate-x-1/2 z-[100] px-4 py-2 rounded-lg shadow-xl flex items-center gap-2 animate-in fade-in slide-in-from-top-4 duration-300 ${
+        type === 'error' ? 'bg-red-500 text-white' : 
+        type === 'success' ? 'bg-emerald-600 text-white' : 
+        'bg-slate-800 text-white'
+    }`}>
+        {type === 'success' && <CheckCircle2 size={16} />}
+        {type === 'error' && <Info size={16} />}
+        {type === 'info' && <Info size={16} />}
+        <span className="text-sm font-medium">{message}</span>
+    </div>
+);
+
 // --- 子组件：通用 ---
 const TooltipButton = ({ onClick, icon, active, label }) => (
     <div className="relative group">
@@ -484,7 +498,7 @@ const ZoneEditModal = ({ zone, onClose, onSave, onDelete, t }) => {
 const MapView = ({ 
     mapImage, setMapImage, pins, setPins, zones, setZones, 
     editingPinId, setEditingPinId, setActiveTab, mapMode, setMapMode, 
-    currentZonePoints, setCurrentZonePoints, onEditImage, t
+    currentZonePoints, setCurrentZonePoints, onEditImage, t, showToast
 }) => {
     const [draggingPinId, setDraggingPinId] = useState(null);
     const [draggingZonePoint, setDraggingZonePoint] = useState(null); 
@@ -664,7 +678,7 @@ const MapView = ({
 
         Promise.all(promises).then(finalPins => {
             setPins(finalPins);
-            alert(t('relinkSuccess').replace('{count}', restoredCount));
+            showToast(t('relinkSuccess').replace('{count}', restoredCount), 'success');
         });
     };
 
@@ -719,7 +733,7 @@ const MapView = ({
     };
 
     const finishZone = () => {
-        if (currentZonePoints.length < 3) return alert(t('alertZone3Points'));
+        if (currentZonePoints.length < 3) return showToast(t('alertZone3Points'), 'error');
         if (drawingForZoneId) {
             setZones(prev => prev.map(z => z.id === drawingForZoneId ? { ...z, points: currentZonePoints } : z));
             setDrawingForZoneId(null);
@@ -738,7 +752,7 @@ const MapView = ({
     const cancelDraw = () => { setCurrentZonePoints([]); setDrawingForZoneId(null); setMapMode('view'); };
 
     const handleZoneSave = (oldId, newData) => {
-        if (oldId !== newData.id && zones.find(z => z.id === newData.id)) return alert(t('alertZoneExist'));
+        if (oldId !== newData.id && zones.find(z => z.id === newData.id)) return showToast(t('alertZoneExist'), 'error');
         setZones(zones.map(z => z.id === oldId ? { ...z, id: newData.id, name: newData.name, colorIndex: newData.colorIndex } : z));
         setEditingZone(null);
     };
@@ -1083,13 +1097,18 @@ const ImageEditor = ({ pin, setPins, setActiveTab, t, onNavigate, hasPrev, hasNe
     const containerRef = useRef(null);
     const restoreInputRef = useRef(null); // 单张恢复 input
 
+    // NEW: Persistent Image Object Reference
+    const imageObjRef = useRef(null);
+
     // 重置状态当 Pin ID 改变 (切换图片)
     useEffect(() => {
         setFilters(pin.filters);
         setHighlightPoly(pin.highlightPoly || []);
         setPaths(pin.annotations);
         setNotes(pin.notes || '');
-        setViewState(prev => ({ ...prev, isImageLoaded: false, offset: { x: 0, y: 0 } }));
+        // Do NOT reset zoom/offset aggressively to avoid jarring jumps
+        setViewState(prev => ({ ...prev, isImageLoaded: false })); 
+        imageObjRef.current = null; // Clear current image ref
     }, [pin.id]);
     
     // 快捷键监听
@@ -1149,11 +1168,18 @@ const ImageEditor = ({ pin, setPins, setActiveTab, t, onNavigate, hasPrev, hasNe
     useEffect(() => {
         if (!pin.imageSrc) return; // 如果没有图片数据，跳过加载
 
+        // If we already have the correct image loaded, don't reload
+        if (imageObjRef.current && imageObjRef.current.src === pin.imageSrc) {
+             setViewState(prev => ({ ...prev, isImageLoaded: true }));
+             return;
+        }
+
         const img = new Image();
         img.src = pin.imageSrc;
-        setViewState(prev => ({ ...prev, isImageLoaded: false }));
         
         img.onload = () => {
+            imageObjRef.current = img; // Persist the loaded image object
+            
             // Auto-fit Logic
             if (containerRef.current) {
                 const { clientWidth, clientHeight } = containerRef.current;
@@ -1163,7 +1189,6 @@ const ImageEditor = ({ pin, setPins, setActiveTab, t, onNavigate, hasPrev, hasNe
                     (clientHeight - padding) / img.naturalHeight
                 );
                 // Ensure zoom is reasonable (between 0.1 and 1)
-                // We default to 'fit' (scale), but cap it at 100% (1) if image is smaller than screen
                 const fitZoom = Math.min(Math.max(scale, 0.1), 1); 
                 
                 setViewState(prev => ({ ...prev, isImageLoaded: true, zoom: fitZoom, offset: { x: 0, y: 0 } }));
@@ -1189,14 +1214,17 @@ const ImageEditor = ({ pin, setPins, setActiveTab, t, onNavigate, hasPrev, hasNe
 
     // 3. Canvas Drawing Logic (Runs on every change)
     useEffect(() => {
-        if (!canvasRef.current || !viewState.isImageLoaded || !pin.imageSrc) return;
+        if (!canvasRef.current || !viewState.isImageLoaded || !imageObjRef.current) return;
+        
         const canvas = canvasRef.current;
         const ctx = canvas.getContext('2d');
-        const img = new Image();
-        img.src = pin.imageSrc;
+        const img = imageObjRef.current; // Use the PRE-LOADED image
 
-        canvas.width = img.naturalWidth;
-        canvas.height = img.naturalHeight;
+        // Ensure canvas size matches image
+        if (canvas.width !== img.naturalWidth || canvas.height !== img.naturalHeight) {
+            canvas.width = img.naturalWidth;
+            canvas.height = img.naturalHeight;
+        }
         
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         
@@ -1682,9 +1710,15 @@ const App = () => {
   const [currentZonePoints, setCurrentZonePoints] = useState([]);
   const [lang, setLang] = useState('zh'); // 'zh' or 'en'
   const projectInputRef = useRef(null);
+  const [toast, setToast] = useState(null);
 
   const t = (key) => TRANSLATIONS[lang][key] || key;
   const activePin = useMemo(() => pins.find(p => p.id === editingPinId), [pins, editingPinId]);
+
+  const showToast = (message, type = 'info') => {
+      setToast({ message, type });
+      setTimeout(() => setToast(null), 3000);
+  };
 
   // 新增：导航函数
   const handleNavigatePin = (direction) => {
@@ -1726,14 +1760,15 @@ const App = () => {
         const data = JSON.parse(event.target.result);
         if (data.mapImage) setMapImage(data.mapImage); else setMapImage(null); // Reset map if not present
         if (data.pins) setPins(data.pins); if (data.zones) setZones(data.zones);
-        alert(t('msgLoadSuccess'));
-      } catch (err) { alert(t('msgLoadErr')); }
+        showToast(t('msgLoadSuccess'), 'success');
+      } catch (err) { showToast(t('msgLoadErr'), 'error'); }
     };
     reader.readAsText(file);
   };
 
   return (
-    <div className="flex flex-col h-screen bg-slate-100 font-sans text-slate-800 overflow-hidden">
+    <div className="flex flex-col h-screen bg-slate-100 font-sans text-slate-800 overflow-hidden relative">
+      {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
       <header className="bg-white/80 backdrop-blur-md border-b px-6 py-2 flex items-center justify-between z-40 shadow-sm shrink-0">
         <div className="flex-1 flex items-center gap-2">
             <div className="bg-emerald-600 text-white p-1.5 rounded-md shadow-sm">
@@ -1746,7 +1781,7 @@ const App = () => {
                 <button 
                     key={tab}
                     onClick={() => {
-                        if (tab === 'editor' && !activePin) return alert("请先在地图上选择或添加一张图片");
+                        if (tab === 'editor' && !activePin) return showToast("请先在地图上选择或添加一张图片", 'error');
                         setActiveTab(tab);
                     }}
                     className={`px-6 py-1.5 rounded-md text-sm font-medium transition-all flex items-center gap-2 ${activeTab === tab ? 'bg-white shadow text-emerald-600' : 'text-slate-500 hover:text-slate-700'}`}
@@ -1770,7 +1805,7 @@ const App = () => {
       </header>
       
       <main className="flex-1 overflow-hidden relative">
-        {activeTab === 'map' && <MapView mapImage={mapImage} setMapImage={setMapImage} pins={pins} setPins={setPins} zones={zones} setZones={setZones} editingPinId={editingPinId} setEditingPinId={setEditingPinId} setActiveTab={setActiveTab} mapMode={mapMode} setMapMode={setMapMode} currentZonePoints={currentZonePoints} setCurrentZonePoints={setCurrentZonePoints} onEditImage={(pin) => { setEditingPinId(pin.id); setActiveTab('editor'); }} t={t} />}
+        {activeTab === 'map' && <MapView mapImage={mapImage} setMapImage={setMapImage} pins={pins} setPins={setPins} zones={zones} setZones={setZones} editingPinId={editingPinId} setEditingPinId={setEditingPinId} setActiveTab={setActiveTab} mapMode={mapMode} setMapMode={setMapMode} currentZonePoints={currentZonePoints} setCurrentZonePoints={setCurrentZonePoints} onEditImage={(pin) => { setEditingPinId(pin.id); setActiveTab('editor'); }} t={t} showToast={showToast} />}
         {activeTab === 'editor' && activePin && (
             <ImageEditor 
                 key={activePin.id} 
