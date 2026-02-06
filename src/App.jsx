@@ -205,7 +205,16 @@ const TRANSLATIONS = {
         statusEnabled: "已启用",
         statusDisabled: "已禁用",
         drawZoneBoundary: "绘制 {id} 区 边界",
-        missingImagesBanner: "部分图片缺失，请修复"
+        missingImagesBanner: "部分图片缺失，请修复",
+        btnInitZone: "初始化区域标识",
+        confirmInitZone: "确定要清空该区域所有标识的标注吗？此操作不可恢复。",
+        msgZoneInitialized: "区域标识已初始化",
+        btnDeleteZoneAndImages: "删除区域及图片",
+        confirmDeleteZoneAndImages: "确定要删除该区域以及其中的所有图片吗？",
+        batchModeOn: "批量管理",
+        batchModeOff: "退出管理",
+        btnDeleteSelected: "删除选中项 ({count})",
+        confirmDeleteSelected: "确定删除选中的 {count} 张图片吗？"
     },
     en: {
         appTitle: "Signage Annotator",
@@ -350,7 +359,16 @@ const TRANSLATIONS = {
         statusEnabled: "Enabled",
         statusDisabled: "Disabled",
         drawZoneBoundary: "Draw Zone {id} Boundary",
-        missingImagesBanner: "Some images missing. Please fix."
+        missingImagesBanner: "Some images missing. Please fix.",
+        btnInitZone: "Initialize Zone Pins",
+        confirmInitZone: "Are you sure you want to clear all annotations in this zone? This cannot be undone.",
+        msgZoneInitialized: "Zone pins initialized",
+        btnDeleteZoneAndImages: "Delete Zone & Images",
+        confirmDeleteZoneAndImages: "Delete zone and ALL contained images?",
+        batchModeOn: "Batch Manage",
+        batchModeOff: "Exit Batch",
+        btnDeleteSelected: "Delete Selected ({count})",
+        confirmDeleteSelected: "Delete {count} selected images?"
     }
 };
 
@@ -668,7 +686,7 @@ const TooltipButton = ({ onClick, icon, active, label }) => (
     </div>
 );
 
-const ZoneEditModal = ({ zone, onClose, onSave, onDelete, t }) => {
+const ZoneEditModal = ({ zone, onClose, onSave, onDelete, onInitialize, t }) => {
     const [formData, setFormData] = useState({ id: zone.id, name: zone.name || '', colorIndex: zone.colorIndex || 0 });
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
@@ -697,7 +715,11 @@ const ZoneEditModal = ({ zone, onClose, onSave, onDelete, t }) => {
                 </div>
                 <div className="mt-6 flex gap-2">
                     <button onClick={() => onSave(zone.id, formData)} className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white py-2 rounded-lg text-sm font-medium transition-colors">{t('btnSave')}</button>
-                    <button onClick={() => { if (confirm(t('confirmDeleteZone'))) onDelete(zone.id); }} className="p-2 border border-red-200 text-red-500 hover:bg-red-50 rounded-lg"><Trash2 size={18} /></button>
+                    {/* 初始化按钮 */}
+                    <button onClick={() => { if (confirm(t('confirmInitZone'))) onInitialize(zone.id); }} className="px-3 py-2 border border-slate-200 text-slate-600 hover:bg-slate-50 rounded-lg text-xs font-medium" title={t('btnInitZone')}><RotateCcw size={18} /></button>
+                    {/* 区域及图片删除按钮 */}
+                    <button onClick={() => { if (confirm(t('confirmDeleteZoneAndImages'))) onDelete(zone.id, true); }} className="p-2 border border-red-200 text-red-500 hover:bg-red-50 rounded-lg" title={t('btnDeleteZoneAndImages')}><Trash2 size={18} /><span className="text-[10px] font-bold ml-1">ALL</span></button>
+                    <button onClick={() => { if (confirm(t('confirmDeleteZone'))) onDelete(zone.id, false); }} className="p-2 border border-red-200 text-red-500 hover:bg-red-50 rounded-lg" title={t('btnDeleteZone')}><Trash2 size={18} /></button>
                 </div>
             </div>
         </div>
@@ -708,7 +730,8 @@ const ZoneEditModal = ({ zone, onClose, onSave, onDelete, t }) => {
 const MapView = ({
     mapImage, setMapImage, pins, setPins, zones, setZones,
     editingPinId, setEditingPinId, setActiveTab, mapMode, setMapMode,
-    currentZonePoints, setCurrentZonePoints, onEditImage, t, showToast
+    currentZonePoints, setCurrentZonePoints, onEditImage, t, showToast,
+    isBatchMode, toggleBatchMode, selectedPinIds, togglePinSelection, onDeleteSelected
 }) => {
     const [draggingPinId, setDraggingPinId] = useState(null);
     const [draggingZonePoint, setDraggingZonePoint] = useState(null);
@@ -953,8 +976,43 @@ const MapView = ({
         setZones(zones.map(z => z.id === oldId ? { ...z, id: newData.id, name: newData.name, colorIndex: newData.colorIndex } : z));
         setEditingZone(null);
     };
-    const handleZoneDelete = (id) => {
+    // Update to accept recursive delete flag
+    const handleZoneDelete = (id, includeImages = false) => {
+        // If recursive, removed logic is handled in App.jsx or we need to callback?
+        // Actually handleZoneDelete prop passed from App is expected to handle it?
+        // Wait, the prop passed to ZoneEditModal is 'onDelete' which is 'handleZoneDelete' defined LOCALLY in MapView (line 956 in original).
+        // I need to update this local function to bubbling up or handling it.
+        // BUT pins are state in MapView (passed from App). So I can handle it here!
+
+        if (includeImages) {
+            const targetZone = zones.find(z => z.id === id);
+            if (targetZone) {
+                setPins(prev => prev.filter(p => !isPointInPolygon({ x: p.x, y: p.y }, targetZone.points)));
+            }
+        }
         setZones(zones.filter(z => z.id !== id));
+        setEditingZone(null);
+    };
+
+    // 新增：初始化区域标识 (清空区域内所有点的标注)
+    const handleInitializeZonePins = (zoneId) => {
+        const targetZone = zones.find(z => z.id === zoneId);
+        if (!targetZone) return;
+
+        setPins(prevPins => prevPins.map(pin => {
+            if (pin.x !== null && pin.y !== null && isPointInPolygon({ x: pin.x, y: pin.y }, targetZone.points)) {
+                return {
+                    ...pin,
+                    annotations: [],
+                    highlightPoly: [],
+                    notes: '',
+                    groupId: null // Optional: clear group as well? Let's keep group for now as it might be structural. Or maybe clear it if 'initialization' implies fresh start. Let's keep groupId for now, but clear content.
+                    // Actually user request says "回复所有标识的标记情况", implies resetting annotations.
+                };
+            }
+            return pin;
+        }));
+        showToast(t('msgZoneInitialized'), 'success');
         setEditingZone(null);
     };
 
@@ -969,7 +1027,7 @@ const MapView = ({
 
     return (
         <div className="flex h-full bg-slate-50 overflow-hidden" onMouseUp={handleMouseUp} onMouseMove={handleMouseMove} onTouchEnd={handleMouseUp} onTouchMove={handleMouseMove}>
-            {editingZone && <ZoneEditModal zone={editingZone} onClose={() => setEditingZone(null)} onSave={handleZoneSave} onDelete={handleZoneDelete} t={t} />}
+            {editingZone && <ZoneEditModal zone={editingZone} onClose={() => setEditingZone(null)} onSave={handleZoneSave} onDelete={handleZoneDelete} onInitialize={handleInitializeZonePins} t={t} />}
 
             {!isListFullscreen && (
                 <div className="flex-1 flex flex-col p-4 overflow-hidden relative">
@@ -1093,11 +1151,37 @@ const MapView = ({
                             {isListFullscreen ? <Minimize size={16} /> : <Maximize size={16} />}
                         </button>
                         <div className="w-px h-4 bg-slate-300 mx-1"></div>
-                        <button onClick={handleCreateZoneFolder} className="p-1.5 bg-slate-100 text-slate-600 rounded hover:bg-slate-200 transition-colors" title={t('createZoneFolder')}><FolderPlus size={16} /></button>
-                        <input type="file" multiple ref={batchInputRef} className="hidden" accept="image/*" onChange={handleBatchUpload} />
-                        <button onClick={() => batchInputRef.current.click()} className="p-1.5 bg-emerald-100 text-emerald-700 rounded hover:bg-emerald-200 transition-colors" title={t('batchUpload')}><FilePlus size={16} /></button>
+                        {/* Batch Mode Toggle */}
+                        <button
+                            onClick={toggleBatchMode}
+                            className={`p-1.5 rounded transition-colors ${isBatchMode ? 'bg-indigo-600 text-white shadow-md' : 'bg-slate-100 text-indigo-600 hover:bg-indigo-50'}`}
+                            title={isBatchMode ? t('batchModeOff') : t('batchModeOn')}
+                        >
+                            {isBatchMode ? <CheckSquare size={16} /> : <CheckSquare size={16} />}
+                        </button>
+                        {!isBatchMode && (
+                            <>
+                                <button onClick={handleCreateZoneFolder} className="p-1.5 bg-slate-100 text-slate-600 rounded hover:bg-slate-200 transition-colors" title={t('createZoneFolder')}><FolderPlus size={16} /></button>
+                                <input type="file" multiple ref={batchInputRef} className="hidden" accept="image/*" onChange={handleBatchUpload} />
+                                <button onClick={() => batchInputRef.current.click()} className="p-1.5 bg-emerald-100 text-emerald-700 rounded hover:bg-emerald-200 transition-colors" title={t('batchUpload')}><FilePlus size={16} /></button>
+                            </>
+                        )}
                     </div>
                 </div>
+
+                {/* Batch Action Bar */}
+                {isBatchMode && (
+                    <div className="bg-indigo-50 p-2 border-b border-indigo-100 flex items-center justify-between animate-in slide-in-from-top-2">
+                        <span className="text-xs font-bold text-indigo-700 ml-2">{selectedPinIds.size} Selected</span>
+                        <button
+                            onClick={onDeleteSelected}
+                            disabled={selectedPinIds.size === 0}
+                            className={`px-3 py-1.5 rounded text-xs font-bold flex items-center gap-1 transition-colors ${selectedPinIds.size > 0 ? 'bg-red-500 text-white hover:bg-red-600 shadow-sm' : 'bg-slate-200 text-slate-400 cursor-not-allowed'}`}
+                        >
+                            <Trash2 size={14} /> {t('btnDeleteSelected').replace('{count}', selectedPinIds.size)}
+                        </button>
+                    </div>
+                )}
 
                 {/* 批量修复提示栏 */}
                 {hasMissingImages && (
@@ -1175,16 +1259,27 @@ const MapView = ({
                                                     key={pin.id}
                                                     id={`pin-item-${pin.id}`}
                                                     onClick={() => {
-                                                        setEditingPinId(pin.id);
-                                                        onEditImage(pin);
+                                                        if (isBatchMode) {
+                                                            togglePinSelection(pin.id);
+                                                        } else {
+                                                            setEditingPinId(pin.id);
+                                                            onEditImage(pin);
+                                                        }
                                                     }}
                                                     className={`flex gap-3 p-2 hover:bg-slate-50 transition-colors cursor-pointer group relative 
-                                                        ${editingPinId === pin.id ? 'bg-emerald-50/50' : ''} 
-                                                        ${isGrouped ? 'pl-6' : ''} 
+                                                        ${editingPinId === pin.id && !isBatchMode ? 'bg-emerald-50/50' : ''} 
+                                                        ${isBatchMode && selectedPinIds.has(pin.id) ? 'bg-indigo-50 border-l-4 border-indigo-500 pl-5' : (isGrouped ? 'pl-6' : '')} 
                                                         ${isUnlocated && placingPinId === pin.id ? 'ring-2 ring-emerald-500 bg-emerald-50' : ''}
                                                         ${isListFullscreen ? 'border border-slate-200 rounded-lg flex-col items-start' : 'items-center'}
                                                     `}
                                                 >
+                                                    {isBatchMode && (
+                                                        <div className="absolute left-2 top-1/2 -translate-y-1/2">
+                                                            <div className={`w-4 h-4 rounded border flex items-center justify-center transition-colors ${selectedPinIds.has(pin.id) ? 'bg-indigo-500 border-indigo-500' : 'bg-white border-slate-300'}`}>
+                                                                {selectedPinIds.has(pin.id) && <Check size={12} className="text-white" />}
+                                                            </div>
+                                                        </div>
+                                                    )}
                                                     {!isListFullscreen && isGrouped && <div className="absolute left-3 top-[-10px] bottom-1/2 border-l-2 border-b-2 border-slate-200 w-3 rounded-bl-lg"></div>}
 
                                                     {/* 图片展示区 (带缺失状态) */}
@@ -2420,12 +2515,38 @@ const App = () => {
     const projectInputRef = useRef(null);
     const [toast, setToast] = useState(null);
 
+    // Batch Mode State
+    const [isBatchMode, setIsBatchMode] = useState(false);
+    const [selectedPinIds, setSelectedPinIds] = useState(new Set());
+
     const t = (key) => TRANSLATIONS[lang][key] || key;
     const activePin = useMemo(() => pins.find(p => p.id === editingPinId), [pins, editingPinId]);
 
     const showToast = (message, type = 'info') => {
         setToast({ message, type });
         setTimeout(() => setToast(null), 3000);
+    };
+
+    const toggleBatchMode = () => {
+        setIsBatchMode(!isBatchMode);
+        setSelectedPinIds(new Set());
+    };
+
+    const togglePinSelection = (id) => {
+        const newSet = new Set(selectedPinIds);
+        if (newSet.has(id)) newSet.delete(id);
+        else newSet.add(id);
+        setSelectedPinIds(newSet);
+    };
+
+    const handleDeleteSelected = () => {
+        if (selectedPinIds.size === 0) return;
+        if (confirm(t('confirmDeleteSelected').replace('{count}', selectedPinIds.size))) {
+            setPins(prev => prev.filter(p => !selectedPinIds.has(p.id)));
+            setSelectedPinIds(new Set());
+            setIsBatchMode(false);
+            showToast("Deleted " + selectedPinIds.size + " images", "success");
+        }
     };
 
     // 新增：导航函数
@@ -2513,7 +2634,7 @@ const App = () => {
             </header>
 
             <main className="flex-1 overflow-hidden relative">
-                {activeTab === 'map' && <MapView mapImage={mapImage} setMapImage={setMapImage} pins={pins} setPins={setPins} zones={zones} setZones={setZones} editingPinId={editingPinId} setEditingPinId={setEditingPinId} setActiveTab={setActiveTab} mapMode={mapMode} setMapMode={setMapMode} currentZonePoints={currentZonePoints} setCurrentZonePoints={setCurrentZonePoints} onEditImage={(pin) => { setEditingPinId(pin.id); setActiveTab('editor'); }} t={t} showToast={showToast} />}
+                {activeTab === 'map' && <MapView mapImage={mapImage} setMapImage={setMapImage} pins={pins} setPins={setPins} zones={zones} setZones={setZones} editingPinId={editingPinId} setEditingPinId={setEditingPinId} setActiveTab={setActiveTab} mapMode={mapMode} setMapMode={setMapMode} currentZonePoints={currentZonePoints} setCurrentZonePoints={setCurrentZonePoints} onEditImage={(pin) => { setEditingPinId(pin.id); setActiveTab('editor'); }} t={t} showToast={showToast} isBatchMode={isBatchMode} toggleBatchMode={toggleBatchMode} selectedPinIds={selectedPinIds} togglePinSelection={togglePinSelection} onDeleteSelected={handleDeleteSelected} />}
                 {activeTab === 'editor' && activePin && (
                     <ImageEditor
                         key={activePin.id}
